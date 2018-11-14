@@ -27,12 +27,16 @@ let additional =
   Key.(create "additional" Arg.(opt string "" doc))
 
 let key_seed =
-  let doc = Key.Arg.info ~doc:"certificate key seed" ["key-seed"] in
-  Key.(create "key-seed" Arg.(required string doc))
+  let doc = Key.Arg.info ~doc:"private key seed" ["key-seed"] in
+  Key.(create "key-seed" Arg.(opt (some string) None doc))
+
+let production =
+  let doc = Key.Arg.info ~doc:"Use the production let's encrypt servers" ["production"] in
+  Key.(create "production" Arg.(flag doc))
 
 let keys = Key.[
     abstract port ; abstract dns_key ; abstract dns_server ; abstract dns_port ;
-    abstract hostname ; abstract additional ; abstract key_seed
+    abstract hostname ; abstract additional ; abstract key_seed ; abstract production
   ]
 
 let packages = [

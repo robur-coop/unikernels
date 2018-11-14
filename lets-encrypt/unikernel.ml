@@ -77,9 +77,11 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             match Domain_name.of_string ~hostname:false name, Dns_packet.dnskey_of_string key with
             | Error _, _ | _, None -> invalid_arg "failed to parse dnskey"
             | Ok key_name, Some dnskey ->
+              Logs.app (fun m -> m "inserting key for %a" Domain_name.pp key_name) ;
               let up =
                 if Astring.String.is_infix ~affix:"update" name then
                   let zone = Domain_name.drop_labels_exn ~amount:2 key_name in
+                  Logs.app (fun m -> m "inserting zone %a update key" Domain_name.pp zone) ;
                   Domain_name.Map.add zone (key_name, dnskey) up
                 else
                   up
@@ -87,10 +89,11 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
               (up, (key_name, dnskey) :: keys))
         (Domain_name.Map.empty, []) (Key_gen.dns_keys ())
     in
+    let dns_server = Key_gen.dns_server () in
     let dns_secondary =
       UDns_server.Secondary.create ~a:[ UDns_server.Authentication.tsig_auth ]
         ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
-        ~rng:R.generate dns_keys
+        ~primary:dns_server ~rng:R.generate dns_keys
     in
     (* TODO check that we've for each zone (of the secondary) an update key *)
 
@@ -98,14 +101,13 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
        (secondary logic cares about zone transfer key) *)
     let flow = ref None in
     let send_dns data =
-      let dst = Key_gen.dns_server () in
-      Logs.debug (fun m -> m "writing to %a" Ipaddr.V4.pp_hum dst) ;
+      Logs.debug (fun m -> m "writing to %a" Ipaddr.V4.pp_hum dns_server) ;
       let tcp = S.tcpv4 stack in
       let rec send again =
         match !flow with
         | None ->
           if again then
-            S.TCPV4.create_connection tcp (dst, 53) >>= function
+            S.TCPV4.create_connection tcp (dns_server, 53) >>= function
             | Error e ->
               Logs.err (fun m -> m "failed to create connection to NS: %a" S.TCPV4.pp_error e) ;
               Lwt.return (Error (Fmt.to_to_string S.TCPV4.pp_error e))
