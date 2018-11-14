@@ -49,7 +49,7 @@ let main =
     (random @-> pclock @-> mclock @-> time @-> stackv4 @-> job)
 
 let address =
-  let network = Ipaddr.V4.Prefix.of_address_string_exn "10.0.42.12/24"
+  let network = Ipaddr.V4.Prefix.of_address_string_exn "10.0.42.7/24"
   and gateway = Ipaddr.V4.of_string "10.0.42.1"
   in
   { network ; gateway }
@@ -60,6 +60,6 @@ let net =
     (static_ipv4_stack ~config:address ~arp:farp default_network)
 
 let () =
-  register "certification" [
+  register "certificate" [
     main $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ net
   ]

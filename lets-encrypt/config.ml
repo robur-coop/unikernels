@@ -58,5 +58,5 @@ let client =
 let () =
   let res_dns = resolver_dns net in
   let conduit = conduit_direct net in
-  register "letsencrypt-client"
+  register "letsencrypt"
     [ client $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ net $ res_dns $ conduit ]

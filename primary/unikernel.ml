@@ -33,6 +33,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     let t = insert (m "secondary") A (ttl, [ ip "10.0.42.4" ]) t in
     let t = insert (m "resolver") A (ttl, [ ip "10.0.42.5" ]) t in
     let t = insert (m "letsencrypt") A (ttl, [ ip "10.0.42.6" ]) t in
+    let t = insert (m "certificate") A (ttl, [ ip "10.0.42.7" ]) t in
     let t = insert (m "www") Cname (ttl, m "router") t in
     let ptr_zone = n "42.0.10.in-addr.arpa" in
     let ptr_soa = Dns_packet.({ nameserver = ns ;
@@ -49,6 +50,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     let t = insert (ptr_name "4") Ptr (ttl, m "secondary") t in
     let t = insert (ptr_name "5") Ptr (ttl, m "resolver") t in
     let t = insert (ptr_name "6") Ptr (ttl, m "letsencrypt") t in
+    let t = insert (ptr_name "7") Ptr (ttl, m "certificate") t in
     t
 
   let start _rng pclock mclock _ s _ =
