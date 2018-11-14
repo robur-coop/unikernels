@@ -80,6 +80,6 @@ The [`resolver`](resolver/) subdirectory contains a recursive resolver listening
 on `10.0.42.5/24`.  A single key-management key is included,
 `foo._key-management:SHA256:/NzgCgIc4yKa7nZvWmODrHMbU+xpMeGiDLkZJGD/Evo=`.
 
-The [`stub`](stub/) subdirectory contains a stub resolver, which forwards all
+The [`stub-resolver`](stub-resolver/) subdirectory contains a stub resolver, which forwards all
 requests to `141.1.1.1`.
 
