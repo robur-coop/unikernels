@@ -45,8 +45,8 @@ let packages = [
   package "duration" ;
   package "logs" ;
   package "cohttp-mirage" ;
-  package "letsencrypt" ;
-  package ~sublibs:[ "mirage.server" ; "server" ] "udns" ;
+  package ~pin:"git+https://github.com/hannesm/ocaml-letsencrypt.git#nsupdate" "letsencrypt" ;
+  package ~sublibs:[ "mirage.server" ; "server" ] ~pin:"git+https://github.com/roburio/udns.git" "udns" ;
   package "hex" ;
   package "randomconv" ;
 ]

@@ -1,5 +1,5 @@
 .mirage.config
-Makefile
+*/Makefile
 Makefile.solo5-hvt
 _build-solo5-hvt/
 _build/

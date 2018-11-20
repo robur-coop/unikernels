@@ -1,0 +1,12 @@
+language: c
+install: wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-opam.sh
+script: bash -ex .travis-opam.sh
+sudo: required
+dist: xenial
+env:
+  global:
+    - PACKAGE="unikernels"
+    - PINS="functoria:git+https://github.com/hannesm/functoria.git#fix-pin-depends mirage:git+https://github.com/hannesm/mirage.git#fix-regression-opam-y"
+    - TESTS=false
+  matrix:
+    - OCAML_VERSION=4.06 POST_INSTALL_HOOK="make MODE=unix"

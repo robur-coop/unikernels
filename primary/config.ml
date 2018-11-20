@@ -16,7 +16,8 @@ let net =
 let dns_handler =
   let packages = [
     package "logs" ;
-    package ~sublibs:[ "server" ; "mirage.server" ; "crypto" ] "udns" ;
+    package ~sublibs:[ "server" ; "mirage.server" ; "crypto" ]
+      ~pin:"git+https://github.com/roburio/udns.git" "udns" ;
     package "nocrypto"
   ] in
   foreign

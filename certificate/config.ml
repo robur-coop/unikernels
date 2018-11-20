@@ -44,7 +44,7 @@ let packages = [
   package "duration" ;
   package "randomconv" ;
   package "logs" ;
-  package ~sublibs:[ "mirage.certify" ] "udns" ;
+  package ~sublibs:[ "mirage.certify" ] ~pin:"git+https://github.com/roburio/udns.git" "udns" ;
   package ~sublibs:[ "mirage" ] "tls" ;
 ]
 
