@@ -6,7 +6,6 @@ dist: xenial
 env:
   global:
     - PACKAGE="unikernels"
-    - PINS="functoria:git+https://github.com/hannesm/functoria.git#fix-pin-depends mirage:git+https://github.com/hannesm/mirage.git#fix-regression-opam-y"
     - TESTS=false
   matrix:
     - OCAML_VERSION=4.06 POST_INSTALL_HOOK="make MODE=unix"
