@@ -21,6 +21,6 @@ build:
 		echo "configure -t $(MODE) $(MIRAGE_FLAGS)" && mirage configure -t $(MODE) $(MIRAGE_FLAGS) && \
 		echo "make depend" && $(MAKE) depend && \
 		echo "make" && $(MAKE) && \
-		echo "mirage clean" && mirage clean \
+		echo "mirage clean" && mirage clean && \
 		echo "leaving $$dir") \
 	done
