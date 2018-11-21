@@ -11,7 +11,7 @@ UNIKERNELS = \
   certificate \
   lets-encrypt
 
-MIRAGE_FLAGS ?=
+MIRAGE_FLAGS += --prng fortuna
 MODE ?= "unix"
 
 BUILD  = $(patsubst %, %-unikernel, $(UNIKERNELS))
