@@ -1,5 +1,7 @@
 # Unikernels
 
+[![Build Status](https://travis-ci.org/roburio/unikernels.svg?branch=master)](https://travis-ci.org/roburio/unikernels)
+
 A MirageOS unikernel repository
 
 All source code in this repository was developed from scratch by the specific authors. This code is put in the public domain.
