@@ -152,6 +152,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             | Ok cert ->
               let certificate = X509.Encoding.cs_of_cert cert in
               Logs.info (fun m -> m "certificate received for %a" Domain_name.pp name) ;
+              Logs.info (fun m -> m "der is %a" Cstruct.hexdump_pp certificate);
               match Dns_trie.lookup name Dns_map.Tlsa (UDns_server.Secondary.data server) with
               | Error e ->
                 Logs.err (fun m -> m "couldn't find tlsa for %a: %a, removing from in_flight" Domain_name.pp name Dns_trie.pp_e e) ;
@@ -167,9 +168,13 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                     in
                     Dns_packet.Add ({ Dns_packet.name ; ttl ; rdata = Dns_packet.TLSA tlsa })
                   and remove =
-                    List.map
-                      (fun tlsa -> Dns_packet.Remove_single (name, TLSA tlsa))
-                      (List.filter interesting_cert tlsas)
+                    Dns_map.TlsaSet.fold
+                      (fun tlsa acc ->
+                         if interesting_cert tlsa then
+                           Dns_packet.Remove_single (name, TLSA tlsa) :: acc
+                         else
+                           acc)
+                      tlsas []
                   in
                   let zone = { Dns_packet.q_name = zone ; q_type = Dns_enum.SOA }
                   and update = remove @ [ add ]
@@ -234,31 +239,48 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             | Some key ->
               let react_change name (_, tlsas) () =
                 match
-                  List.filter interesting_csr tlsas,
-                  List.filter interesting_cert tlsas
+                  Dns_map.TlsaSet.filter interesting_csr tlsas,
+                  Dns_map.TlsaSet.filter interesting_cert tlsas
                 with
-                | [], _ -> Logs.info (fun m -> m "no private selector")
-                | [csr], [cert] when valid_and_matches_csr pclock csr cert ->
-                  Logs.info (fun m -> m "cert exists for csr")
-                | [tlsa], _ ->
-                  begin
-                    match X509.Encoding.parse_signing_request tlsa.Dns_packet.tlsa_data with
-                    | None -> Logs.err (fun m -> m "couldn't parse signing request")
-                    | Some csr ->
-                      match List.find (function `CN _ -> true | _ -> false) (X509.CA.info csr).X509.CA.subject with
-                      | exception Not_found -> Logs.err (fun m -> m "cannot find name of signing request")
-                      | `CN nam ->
-                        begin match Domain_name.of_string nam with
-                          | Error (`Msg msg) -> Logs.err (fun m -> m "error %s while creating domain name of %s" msg nam)
-                          | Ok dns_name ->
-                            if not (Domain_name.equal dns_name name) then
-                              Logs.err (fun m -> m "csr cn %a doesn't match dns %a" Domain_name.pp dns_name Domain_name.pp name)
-                            else
-                              request_certificate t le ctx zone dns_name key csr
+                | x, _ when Dns_map.TlsaSet.is_empty x ->
+                  Logs.info (fun m -> m "no private selector")
+                | csrs, certs ->
+                  if Dns_map.TlsaSet.cardinal csrs = 1 then
+                    let csr = Dns_map.TlsaSet.choose csrs in
+                    let doit =
+                      if Dns_map.TlsaSet.cardinal certs = 1 then
+                        let cert = Dns_map.TlsaSet.choose certs in
+                        if valid_and_matches_csr pclock csr cert then begin
+                          Logs.info (fun m -> m "cert exists for csr, doing nothing");
+                          false
+                        end else begin
+                          Logs.info (fun m -> m "certificate not valid or doesn't match csr, requesting");
+                          true
                         end
-                      | _ -> Logs.err (fun m -> m "cannot find common name of signing request")
-                  end
-                | _, _ -> Logs.err (fun m -> m "not prepared for this task")
+                      else if Dns_map.TlsaSet.is_empty certs then begin
+                        Logs.info (fun m -> m "no certificate found, requesting") ;
+                        true
+                      end else begin
+                        Logs.err (fun m -> m "not prepared for this task") ;
+                        false
+                      end
+                    in
+                    if doit then
+                      match X509.Encoding.parse_signing_request csr.Dns_packet.tlsa_data with
+                      | None -> Logs.err (fun m -> m "couldn't parse signing request")
+                      | Some csr ->
+                        match List.find (function `CN _ -> true | _ -> false) (X509.CA.info csr).X509.CA.subject with
+                        | exception Not_found -> Logs.err (fun m -> m "cannot find name of signing request")
+                        | `CN nam ->
+                          begin match Domain_name.of_string nam with
+                            | Error (`Msg msg) -> Logs.err (fun m -> m "error %s while creating domain name of %s" msg nam)
+                            | Ok dns_name ->
+                              if not (Domain_name.equal dns_name name) then
+                                Logs.err (fun m -> m "csr cn %a doesn't match dns %a" Domain_name.pp dns_name Domain_name.pp name)
+                              else
+                                request_certificate t le ctx zone dns_name key csr
+                          end
+                        | _ -> Logs.err (fun m -> m "cannot find common name of signing request")
               in
               match Dns_trie.folde zone Dns_map.Tlsa (UDns_server.Secondary.data t) react_change () with
               | Ok () -> ()

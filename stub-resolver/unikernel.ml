@@ -7,7 +7,12 @@ open Mirage_types_lwt
 module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = struct
   module D = Dns_mirage_resolver.Make(R)(P)(M)(T)(S)
 
-  let start _r pclock mclock _ s _ =
+  let start _r pclock mclock _ s _ info =
+    Logs.info (fun m -> m "used packages: %a"
+                  Fmt.(Dump.list @@ pair ~sep:(unit ".") string string)
+                  info.Mirage_info.packages) ;
+    Logs.info (fun m -> m "used libraries: %a"
+                  Fmt.(Dump.list string) info.Mirage_info.libraries) ;
     let trie =
       List.fold_left
         (fun trie (k, v) -> Dns_trie.insertb k v trie)
@@ -25,7 +30,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
         Dns_trie.insert Domain_name.root
           Dns_map.Ns (300l, Domain_name.Set.singleton name) trie
       in
-      Dns_trie.insert name Dns_map.A (300l, [ ip ]) trie
+      Dns_trie.insert name Dns_map.A (300l, Dns_map.Ipv4Set.singleton ip) trie
     in
     (match Dns_trie.check trie with
      | Ok () -> ()

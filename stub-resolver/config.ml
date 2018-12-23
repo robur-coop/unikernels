@@ -24,9 +24,9 @@ let dns_handler =
     package "duration" ;
   ] in
   foreign
-    ~deps:[abstract nocrypto]
+    ~deps:[abstract nocrypto ; abstract app_info]
     ~packages
     "Unikernel.Main" (random @-> pclock @-> mclock @-> time @-> stackv4 @-> job)
 
 let () =
-  register "stub" [dns_handler $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ net ]
+  register "stub-resolver" [dns_handler $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ net ]

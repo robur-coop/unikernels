@@ -13,6 +13,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     and ip = Ipaddr.V4.of_string_exn
     and s = Domain_name.Set.singleton
     in
+    let s_ip ipaddr = Dns_map.Ipv4Set.singleton (ip ipaddr) in
     let domain = n "mirage" in
     let m = Domain_name.prepend_exn domain in
     let ns = m "ns"
@@ -27,13 +28,13 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     let open Dns_map in
     let t = insert domain Soa (ttl, soa) Dns_trie.empty in
     let t = insert domain Ns (ttl, s ns) t in
-    let t = insert (m "router") A (ttl, [ ip "10.0.42.1" ]) t in
-    let t = insert ns A (ttl, [ ip "10.0.42.2" ]) t in
-    let t = insert (m "charrua") A (ttl, [ ip "10.0.42.3" ]) t in
-    let t = insert (m "secondary") A (ttl, [ ip "10.0.42.4" ]) t in
-    let t = insert (m "resolver") A (ttl, [ ip "10.0.42.5" ]) t in
-    let t = insert (m "letsencrypt") A (ttl, [ ip "10.0.42.6" ]) t in
-    let t = insert (m "certificate") A (ttl, [ ip "10.0.42.7" ]) t in
+    let t = insert (m "router") A (ttl, s_ip "10.0.42.1") t in
+    let t = insert ns A (ttl, s_ip "10.0.42.2") t in
+    let t = insert (m "charrua") A (ttl, s_ip "10.0.42.3") t in
+    let t = insert (m "secondary") A (ttl, s_ip "10.0.42.4") t in
+    let t = insert (m "resolver") A (ttl, s_ip "10.0.42.5") t in
+    let t = insert (m "letsencrypt") A (ttl, s_ip "10.0.42.6") t in
+    let t = insert (m "certificate") A (ttl, s_ip "10.0.42.7") t in
     let t = insert (m "www") Cname (ttl, m "router") t in
     let ptr_zone = n "42.0.10.in-addr.arpa" in
     let ptr_soa = Dns_packet.({ nameserver = ns ;
