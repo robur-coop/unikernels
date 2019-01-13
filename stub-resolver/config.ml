@@ -4,7 +4,7 @@ open Mirage
 
 let address =
   let network = Ipaddr.V4.Prefix.of_address_string_exn "10.0.42.6/24"
-  and gateway = Ipaddr.V4.of_string "10.0.42.1"
+  and gateway = Some (Ipaddr.V4.of_string_exn "10.0.42.1")
   in
   { network ; gateway }
 

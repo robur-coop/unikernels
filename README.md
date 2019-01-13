@@ -10,9 +10,13 @@ If you want to use them in a corporate environment, and avoid any legal issues, 
 
 ## Installation
 
-You need to have `mirage` installed on your system.
+### Dependencies
 
-In either of the directories, run `mirage configure` (see `mirage help
+Follow the [MirageOS installation instructions](https://mirage.io/wiki/install)
+unless you already have OCaml, opam, and the `mirage` command line utility (at
+least version 3.4.0 from January 2019) installed.
+
+In any of the subdirectories, run `mirage configure` (see `mirage help
 configure` for options), followed by `make depend` and `make` (read more
 information [Hello MirageOS world](https://mirage.io/wiki/hello-world)).
 

@@ -101,7 +101,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
        (secondary logic cares about zone transfer key) *)
     let flow = ref None in
     let send_dns data =
-      Logs.debug (fun m -> m "writing to %a" Ipaddr.V4.pp_hum dns_server) ;
+      Logs.debug (fun m -> m "writing to %a" Ipaddr.V4.pp dns_server) ;
       let tcp = S.tcpv4 stack in
       let rec send again =
         match !flow with
