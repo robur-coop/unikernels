@@ -8,5 +8,7 @@ env:
     - PACKAGE="unikernels"
     - TESTS=false
   matrix:
-    - OCAML_VERSION=4.06 POST_INSTALL_HOOK="make MODE=unix"
-    - OCAML_VERSION=4.06 POST_INSTALL_HOOK="make MODE=hvt"
+    - OCAML_VERSION=4.04 POST_INSTALL_HOOK="make MODE=unix"
+    - OCAML_VERSION=4.05 POST_INSTALL_HOOK="make MODE=hvt"
+    - OCAML_VERSION=4.06 POST_INSTALL_HOOK="make MODE=xen"
+    - OCAML_VERSION=4.07 POST_INSTALL_HOOK="make MODE=virtio"
