@@ -110,10 +110,10 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             S.TCPV4.create_connection tcp (dns_server, 53) >>= function
             | Error e ->
               Logs.err (fun m -> m "failed to create connection to NS: %a" S.TCPV4.pp_error e) ;
-              Lwt.return (Error (Fmt.to_to_string S.TCPV4.pp_error e))
+              Lwt.return (Error (`Msg (Fmt.to_to_string S.TCPV4.pp_error e)))
             | Ok f -> flow := Some (Dns.of_flow f) ; send false
           else
-            Lwt.return_error "couldn't reach authoritative nameserver"
+            Lwt.return_error (`Msg "couldn't reach authoritative nameserver")
         | Some f ->
           Dns.send_tcp (Dns.flow f) data >>= function
           | Error () -> flow := None ; send (not again)
@@ -123,11 +123,11 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
     and recv_dns () =
       (* we expect a single reply! *)
       match !flow with
-      | None -> Lwt.return_error "no TCP flow"
+      | None -> Lwt.return_error (`Msg "no TCP flow")
       | Some f ->
         Dns.read_tcp f >|= function
         | Ok data -> Ok data
-        | Error () -> Error "error while reading from flow"
+        | Error () -> Error (`Msg "error while reading from flow")
     in
 
     (* TODO use a map with number of attempts *)
@@ -145,7 +145,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             let id = Randomconv.int16 R.generate in
             let solver = Letsencrypt.Client.default_dns_solver id now send_dns ~recv:recv_dns key_name dnskey in
             Acme.sign_certificate ~ctx ~solver le sleep csr >>= function
-            | Error e ->
+            | Error (`Msg e) ->
               Logs.err (fun m -> m "error %s, removing %a from in_flight" e Domain_name.pp name) ;
               in_flight := Domain_name.Set.remove name !in_flight ;
               Lwt.return_unit
@@ -194,14 +194,14 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                   Lwt.return_unit
                 | Ok (data, mac) ->
                   send_dns data >>= function
-                  | Error e ->
+                  | Error (`Msg e) ->
                     (* TODO: should retry DNS send *)
                     in_flight := Domain_name.Set.remove name !in_flight ;
                     Logs.err (fun m -> m "error %s while sending nsupdate" e) ;
                     Lwt.return_unit
                   | Ok () ->
                     recv_dns () >|= function
-                    | Error e ->
+                    | Error (`Msg e) ->
                       (* TODO: should retry DNS send *)
                       in_flight := Domain_name.Set.remove name !in_flight ;
                       Logs.err (fun m -> m "error %s while reading DNS" e)
@@ -229,7 +229,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
         Letsencrypt.letsencrypt_staging_url
     in
     Acme.initialise ~ctx ~directory account_key >>= function
-    | Error e -> Logs.err (fun m -> m "error %s" e) ; Lwt.return_unit
+    | Error (`Msg e) -> Logs.err (fun m -> m "error %s" e) ; Lwt.return_unit
     | Ok le ->
       Logs.info (fun m -> m "initialised lets encrypt") ;
       let on_update t =
