@@ -8,11 +8,6 @@ let address =
   in
   { network ; gateway }
 
-let net =
-  if_impl Key.is_unix
-    (socket_stackv4 [Ipaddr.V4.any])
-    (static_ipv4_stack ~config:address ~arp:farp default_network)
-
 let keys =
   let doc = Key.Arg.info ~doc:"nsupdate keys (name:type:value,...)" ["keys"] in
   Key.(create "keys" Arg.(opt (list string) [] doc))
@@ -42,4 +37,4 @@ let dns_handler =
     "Unikernel.Main" (random @-> pclock @-> mclock @-> time @-> stackv4 @-> job)
 
 let () =
-  register "secondary-git" [dns_handler $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ net ]
+  register "secondary-git" [dns_handler $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ generic_stackv4 default_network ]

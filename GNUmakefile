@@ -15,8 +15,10 @@ MIRAGE_FLAGS += --prng fortuna
 MODE ?= "unix"
 
 BUILD  = $(patsubst %, %-unikernel, $(UNIKERNELS))
+CLEAN  = $(patsubst %, %-clean, $(UNIKERNELS))
 
 build: $(BUILD)
+clean: $(CLEAN)
 
 %-unikernel:
 	cd $* && \
@@ -24,3 +26,6 @@ build: $(BUILD)
 	$(MAKE) depend && \
 	$(MAKE) && \
 	mirage clean
+
+%-clean:
+	-cd $* && mirage clean

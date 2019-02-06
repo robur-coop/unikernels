@@ -2,17 +2,6 @@
 
 open Mirage
 
-let address =
-  let network = Ipaddr.V4.Prefix.of_address_string_exn "10.0.42.2/24"
-  and gateway = Some (Ipaddr.V4.of_string_exn "10.0.42.1")
-  in
-  { network ; gateway }
-
-let net =
-  if_impl Key.is_unix
-    (socket_stackv4 [Ipaddr.V4.any])
-    (static_ipv4_stack ~config:address ~arp:farp default_network)
-
 let remote_k =
   let doc = Key.Arg.info ~doc:"Remote repository to fetch content."
       ["r"; "remote"] in
@@ -35,6 +24,7 @@ let dns_handler =
     (random @-> pclock @-> mclock @-> time @-> stackv4 @-> resolver @-> conduit @-> job)
 
 let () =
+  let net = generic_stackv4 default_network in
   register "primary-git"
     [dns_handler $ default_random $ default_posix_clock $ default_monotonic_clock $
      default_time $ net $ resolver_dns net $ conduit_direct net]

@@ -31,13 +31,15 @@ If you want to compile for Linux KVM, FreeBSD BHyve, OpenBSD VMM (by using
 
 All unikernels require you to have µDNS installed (`opam pin add udns https://github.com/roburio/udns`).
 
+All unikernels use the default stack implementation, and thus will listen on
+10.0.0.2/24, their gateway being 10.0.0.1.
+
 ## Primary authoritative nameservers
 
-The [`primary`](primary/) subdirectory contains an unikernel with the
-hardcoded zone (in its [unikernel.ml](primary/unikernel.ml)) named `mirage`,
-listening on `10.0.42.2/24`, and some resource records.  It also
-configures several TSIG keys, one for the seconday, another for update,
-transfer, and key-management.
+The [`primary`](primary/) subdirectory contains an unikernel with the hardcoded
+zone (in its [unikernel.ml](primary/unikernel.ml)) named `mirage` and some
+resource records.  It also configures several TSIG keys, one for the seconday,
+another for update, transfer, and key-management.
 
 The [`primary-with-zone`](primary-with-zone/) contains no hardcoded
 configuration, but serves [`data/zone`](primary-with-zone/data/zone) instead.
@@ -48,9 +50,8 @@ zonefiles, parses and serves them via DNS.
 
 ## Secondary authoritative nameserver
 
-The [`secondary`](secondary/) subdirectory contains an unikernel which
-listens on `10.0.42.4/24` by default and accepts TSIG keys as command line
-arguments (`--keys`, can be provided multiple times).
+The [`secondary`](secondary/) subdirectory contains an unikernel which accepts
+TSIG keys as command line arguments (`--keys`, can be provided multiple times).
 
 The [`secondary-git`](secondary-git/) subdirectory contains a secondary that at
 the moment only works with the unix target of mirage and dumps zonefiles in a
@@ -82,10 +83,10 @@ DNS as `TLSA` record.
 
 ## Caching resolvers
 
-The [`resolver`](resolver/) subdirectory contains a recursive resolver listening
-on `10.0.42.5/24`.  A single key-management key is included,
+The [`resolver`](resolver/) subdirectory contains a recursive resolver.  A
+single key-management key is included,
 `foo._key-management:SHA256:/NzgCgIc4yKa7nZvWmODrHMbU+xpMeGiDLkZJGD/Evo=`.
 
-The [`stub-resolver`](stub-resolver/) subdirectory contains a stub resolver, which forwards all
-requests to `141.1.1.1`.
+The [`stub-resolver`](stub-resolver/) subdirectory contains a stub resolver,
+which forwards all requests to `141.1.1.1`.
 

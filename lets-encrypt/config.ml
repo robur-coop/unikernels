@@ -29,17 +29,6 @@ let keys = Key.[
     abstract account_key_seed ; abstract production
   ]
 
-let address =
-  let network = Ipaddr.V4.Prefix.of_address_string_exn "10.0.42.6/24"
-  and gateway = Some (Ipaddr.V4.of_string_exn "10.0.42.1")
-  in
-  { network ; gateway }
-
-let net =
-  if_impl Key.is_unix
-    (socket_stackv4 [Ipaddr.V4.any])
-    (static_ipv4_stack ~config:address ~arp:farp default_network)
-
 let packages = [
   package "x509" ;
   package "duration" ;
@@ -56,6 +45,7 @@ let client =
   random @-> pclock @-> mclock @-> time @-> stackv4 @-> resolver @-> conduit @-> job
 
 let () =
+  let net = generic_stackv4 default_network in
   let res_dns = resolver_dns net in
   let conduit = conduit_direct net in
   register "letsencrypt"
