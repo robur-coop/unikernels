@@ -37,8 +37,11 @@ let packages =
     package "logs" ;
     package "cohttp-mirage" ;
     package ~pin:"git+https://github.com/hannesm/ocaml-letsencrypt.git#nsupdate" "letsencrypt" ;
+    package ~pin "udns-tsig";
+    package ~pin "udns-mirage";
     package ~pin "udns-mirage-server";
     package ~pin "udns-server";
+    package ~pin "udns";
     package "randomconv" ;
 ]
 

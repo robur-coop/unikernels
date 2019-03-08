@@ -46,6 +46,9 @@ let packages =
     package "duration" ;
     package "randomconv" ;
     package "logs" ;
+    package ~pin "udns";
+    package ~pin "udns-tsig";
+    package ~pin "udns-mirage";
     package ~pin "udns-mirage-certify";
     package ~sublibs:[ "mirage" ] "tls" ;
   ]

@@ -7,7 +7,10 @@ let dns_handler =
     let pin = "git+https://github.com/roburio/udns.git" in
     [
       package "logs" ;
+      package ~pin "udns";
+      package ~pin "udns-mirage";
       package ~pin "udns-server";
+      package ~pin "udns-resolver";
       package ~pin "udns-mirage-resolver";
       package ~pin "udns-tsig";
       package "randomconv" ;
