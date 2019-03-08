@@ -9,7 +9,8 @@ UNIKERNELS = \
   resolver \
   stub-resolver \
   certificate \
-  lets-encrypt
+  lets-encrypt \
+  client
 
 MIRAGE_FLAGS += --prng fortuna
 MODE ?= "unix"
