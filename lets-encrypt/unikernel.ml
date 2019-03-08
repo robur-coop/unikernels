@@ -288,6 +288,6 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
           (UDns_server.Secondary.zones t) ;
         Lwt.return_unit
       in
-      Dns_server.secondary ~on_update stack pclock mclock dns_secondary ;
+      Dns_server.secondary ~on_update stack dns_secondary ;
       S.listen stack
 end

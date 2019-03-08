@@ -5,12 +5,18 @@ open Mirage
 let disk = generic_kv_ro "data"
 
 let dns_handler =
-  let packages = [
-    package "logs" ;
-    package ~sublibs:[ "server" ; "zonefile" ; "mirage.server" ; "crypto" ]
-      ~pin:"git+https://github.com/roburio/udns.git" "udns" ;
-    package "nocrypto"
-  ] in
+  let packages =
+    let pin = "git+https://github.com/roburio/udns.git" in
+    [
+      package "logs" ;
+      package ~pin "udns-server";
+      package ~pin "udns-zonefile";
+      package ~pin "udns-mirage-server";
+      package ~pin "udns-tsig";
+      package "nocrypto";
+      package ~min:"2.0.0" "mirage-kv-lwt";
+    ]
+  in
   foreign
     ~deps:[abstract nocrypto]
     ~packages

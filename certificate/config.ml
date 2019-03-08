@@ -39,14 +39,16 @@ let keys = Key.[
     abstract hostname ; abstract additional ; abstract key_seed ; abstract production
   ]
 
-let packages = [
-  package "x509" ;
-  package "duration" ;
-  package "randomconv" ;
-  package "logs" ;
-  package ~sublibs:[ "mirage.certify" ] ~pin:"git+https://github.com/roburio/udns.git" "udns" ;
-  package ~sublibs:[ "mirage" ] "tls" ;
-]
+let packages =
+  let pin = "git+https://github.com/roburio/udns.git" in
+  [
+    package "x509" ;
+    package "duration" ;
+    package "randomconv" ;
+    package "logs" ;
+    package ~pin "udns-mirage-certify";
+    package ~sublibs:[ "mirage" ] "tls" ;
+  ]
 
 let main =
   foreign ~keys ~packages ~deps:[abstract nocrypto] "Unikernel.Main"

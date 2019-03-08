@@ -29,15 +29,17 @@ let keys = Key.[
     abstract account_key_seed ; abstract production
   ]
 
-let packages = [
-  package "x509" ;
-  package "duration" ;
-  package "logs" ;
-  package "cohttp-mirage" ;
-  package ~pin:"git+https://github.com/hannesm/ocaml-letsencrypt.git#nsupdate" "letsencrypt" ;
-  package ~sublibs:[ "mirage.server" ; "server" ] ~pin:"git+https://github.com/roburio/udns.git" "udns" ;
-  package "hex" ;
-  package "randomconv" ;
+let packages =
+  let pin = "git+https://github.com/roburio/udns.git" in
+  [
+    package "x509" ;
+    package "duration" ;
+    package "logs" ;
+    package "cohttp-mirage" ;
+    package ~pin:"git+https://github.com/hannesm/ocaml-letsencrypt.git#nsupdate" "letsencrypt" ;
+    package ~pin "udns-mirage-server";
+    package ~pin "udns-server";
+    package "randomconv" ;
 ]
 
 let client =

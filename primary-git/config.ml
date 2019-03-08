@@ -10,8 +10,10 @@ let remote_k =
 let dns_handler =
   let packages = [
     package "logs" ;
-    package ~sublibs:[ "server" ; "zonefile" ; "mirage.server" ; "crypto" ]
-      ~pin:"git+https://github.com/roburio/udns.git" "udns" ;
+    package "udns-server";
+    package "udns-zonefile";
+    package "udns-mirage-server";
+    package "udns-tsig";
     package "nocrypto" ;
     package ~min:"1.0.0" "irmin";
     package "irmin-mirage";

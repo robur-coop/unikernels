@@ -1,10 +1,10 @@
 -include Makefile.config
 
 #  secondary-git
+#  primary-git
 UNIKERNELS = \
   primary \
   primary-with-zone \
-  primary-git \
   secondary \
   resolver \
   stub-resolver \

@@ -21,6 +21,6 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
         ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
         ~rng:R.generate keys
     in
-    D.secondary s pclock mclock t ;
+    D.secondary s t ;
     S.listen s
 end

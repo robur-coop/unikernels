@@ -7,12 +7,15 @@ let keys =
   Key.(create "keys" Arg.(opt (list string) [] doc))
 
 let dns_handler =
-  let packages = [
-    package "logs" ;
-    package ~sublibs:[ "server" ; "mirage.server" ; "crypto" ]
-      ~pin:"git+https://github.com/roburio/udns.git" "udns" ;
-    package "nocrypto"
-  ]
+  let packages =
+    let pin = "git+https://github.com/roburio/udns.git" in
+    [
+      package "logs" ;
+      package ~pin "udns-server";
+      package ~pin "udns-mirage-server";
+      package ~pin "udns-tsig";
+      package "nocrypto";
+    ]
   and keys = Key.([ abstract keys ])
   in
   foreign

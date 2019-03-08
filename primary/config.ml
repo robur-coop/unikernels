@@ -3,12 +3,16 @@
 open Mirage
 
 let dns_handler =
-  let packages = [
-    package "logs" ;
-    package ~sublibs:[ "server" ; "mirage.server" ; "crypto" ]
-      ~pin:"git+https://github.com/roburio/udns.git" "udns" ;
-    package "nocrypto"
-  ] in
+  let packages =
+    let pin = "git+https://github.com/roburio/udns.git" in
+    [
+      package "logs" ;
+      package ~pin "udns-server";
+      package ~pin "udns-mirage-server";
+      package ~pin "udns-tsig";
+      package "nocrypto"
+    ]
+  in
   foreign
     ~deps:[abstract nocrypto]
     ~packages

@@ -46,7 +46,9 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
                   Logs.info (fun m -> m "nothing to do here") ;
                   Lwt.return_unit
                 | _ ->
-                  Store.set branch ~info:(info "zone transferred") k str) >|= fun () ->
+                  Store.set branch ~info:(info "zone transferred") k str >|= function
+                  | Error e -> Logs.warn (fun m -> m "Store.set failed")
+                  | Ok () -> ()) >|= fun () ->
             (* try to load it again... just in case ;) *)
             match Zonefile.load [] str with
             | Error msg ->
@@ -73,6 +75,6 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
         zones
     in
     let port = Key_gen.port () in
-    D.secondary ~on_update ~port s pclock mclock t ;
+    D.secondary ~on_update ~port s t ;
     S.listen s
 end

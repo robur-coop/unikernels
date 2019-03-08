@@ -87,6 +87,6 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     Logs.info (fun m -> m "loaded zone: %a"
                   (Rresult.R.pp ~ok:Fmt.string ~error:Fmt.string)
                   (UDns_server.text (Domain_name.of_string_exn "mirage") (UDns_server.Primary.server t))) ;
-    D.primary s pclock mclock t ;
+    D.primary s t ;
     S.listen s
 end

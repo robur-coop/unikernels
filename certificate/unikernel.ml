@@ -61,7 +61,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S: Mirage_stack_l
         (Astring.String.cuts ~empty:false ~sep:"," (Key_gen.additional ()))
     in
     let ca = if Key_gen.production () then `Production else `Staging in
-    D.retrieve_certificate ~ca stack pclock ~dns_key:(Key_gen.dns_key ())
+    D.retrieve_certificate ~ca stack ~dns_key:(Key_gen.dns_key ())
       ~hostname ~additional_hostnames ?key_seed:(Key_gen.key_seed ())
       (Key_gen.dns_server ()) (Key_gen.dns_port ()) >>= fun own_cert ->
     (match own_cert with
