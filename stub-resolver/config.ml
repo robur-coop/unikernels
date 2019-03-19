@@ -2,6 +2,10 @@
 
 open Mirage
 
+let resolver =
+  let doc = Key.Arg.info ~doc:"Recursive resolver to query" ["resolver"] in
+  Key.(create "resolver" Arg.(opt ipv4_address (Ipaddr.V4.of_string_exn "141.1.1.1") doc))
+
 let dns_handler =
   let packages =
     let pin = "git+https://github.com/roburio/udns.git" in
@@ -20,7 +24,8 @@ let dns_handler =
     ]
   in
   foreign
-    ~deps:[abstract nocrypto ; abstract app_info]
+    ~deps:[abstract nocrypto]
+    ~keys:[Key.abstract resolver]
     ~packages
     "Unikernel.Main" (random @-> pclock @-> mclock @-> time @-> stackv4 @-> job)
 

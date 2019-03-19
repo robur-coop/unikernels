@@ -6,27 +6,27 @@ open Mirage_types_lwt
 
 module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = struct
 
-  module D = Dns_mirage_server.Make(P)(M)(T)(S)
+  module D = Udns_mirage_server.Make(P)(M)(T)(S)
 
   let data =
     let n = Domain_name.of_string_exn
     and ip = Ipaddr.V4.of_string_exn
     and s = Domain_name.Set.singleton
     in
-    let s_ip ipaddr = Dns_map.Ipv4Set.singleton (ip ipaddr) in
+    let s_ip ipaddr = Udns_map.Ipv4Set.singleton (ip ipaddr) in
     let domain = n "mirage" in
     let m = Domain_name.prepend_exn domain in
     let ns = m "ns"
     and ttl = 2560l
     in
-    let soa = Dns_packet.({ nameserver = ns ;
+    let soa = Udns_packet.({ nameserver = ns ;
                             hostmaster = m "hostmaster" ;
                             serial = 1l ; refresh = 10l ; retry = 5l ;
                             expiry = 600l ; minimum = ttl })
     in
-    let open Dns_trie in
-    let open Dns_map in
-    let t = insert domain Soa (ttl, soa) Dns_trie.empty in
+    let open Udns_trie in
+    let open Udns_map in
+    let t = insert domain Soa (ttl, soa) Udns_trie.empty in
     let t = insert domain Ns (ttl, s ns) t in
     let t = insert (m "router") A (ttl, s_ip "10.0.42.1") t in
     let t = insert ns A (ttl, s_ip "10.0.42.2") t in
@@ -37,10 +37,10 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     let t = insert (m "certificate") A (ttl, s_ip "10.0.42.7") t in
     let t = insert (m "www") Cname (ttl, m "router") t in
     let ptr_zone = n "42.0.10.in-addr.arpa" in
-    let ptr_soa = Dns_packet.({ nameserver = ns ;
-                                hostmaster = n "hostmaster.example" ;
-                                serial = 1l ; refresh = 16384l ; retry = 2048l ;
-                                expiry = 1048576l ; minimum = ttl })
+    let ptr_soa = Udns_packet.({ nameserver = ns ;
+                                 hostmaster = n "hostmaster.example" ;
+                                 serial = 1l ; refresh = 16384l ; retry = 2048l ;
+                                 expiry = 1048576l ; minimum = ttl })
     in
     let ptr_name = Domain_name.prepend_exn ptr_zone in
     let t = insert ptr_zone Soa (ttl, ptr_soa) t in
@@ -56,15 +56,15 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
 
   let start _rng pclock mclock _ s _ =
     let trie = data in
-    (match Dns_trie.check trie with
+    (match Udns_trie.check trie with
      | Ok () -> ()
      | Error e ->
-       Logs.err (fun m -> m "error %a during check()" Dns_trie.pp_err e) ;
+       Logs.err (fun m -> m "error %a during check()" Udns_trie.pp_err e) ;
        invalid_arg "check") ;
     let keys =
       let key key =
         let key = Cstruct.of_string key in
-        { Dns_packet.flags = 0 ; key_algorithm = Dns_enum.SHA256 ; key }
+        { Udns_packet.flags = 0 ; key_algorithm = Udns_enum.SHA256 ; key }
       in
       [
         Domain_name.of_string_exn ~hostname:false "10.0.42.2.10.0.42.4._transfer.mirage" ,
@@ -80,13 +80,13 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
       ]
     in
     let t =
-      UDns_server.Primary.create ~keys
-        ~a:[UDns_server.Authentication.tsig_auth] ~tsig_verify:Dns_tsig.verify
-        ~tsig_sign:Dns_tsig.sign ~rng:R.generate trie
+      Udns_server.Primary.create ~keys
+        ~a:[Udns_server.Authentication.tsig_auth] ~tsig_verify:Udns_tsig.verify
+        ~tsig_sign:Udns_tsig.sign ~rng:R.generate trie
     in
     Logs.info (fun m -> m "loaded zone: %a"
                   (Rresult.R.pp ~ok:Fmt.string ~error:Fmt.string)
-                  (UDns_server.text (Domain_name.of_string_exn "mirage") (UDns_server.Primary.server t))) ;
+                  (Udns_server.text (Domain_name.of_string_exn "mirage") (Udns_server.Primary.server t))) ;
     D.primary s t ;
     S.listen s
 end

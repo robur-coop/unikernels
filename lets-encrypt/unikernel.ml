@@ -7,7 +7,7 @@ open Lwt.Infix
 module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S)= struct
   module Acme = Letsencrypt.Client.Make (Cohttp_mirage.Client)
 
-  module Dns = Dns_mirage.Make(S)
+  module Dns = Udns_mirage.Make(S)
 
   let gen_rsa seed =
     let seed = Cstruct.of_string seed in
@@ -34,18 +34,18 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
 
   let interesting_csr, interesting_cert =
     let tlsa_interesting t =
-      t.Dns_packet.tlsa_matching_type = Dns_enum.Tlsa_no_hash &&
-      t.Dns_packet.tlsa_cert_usage = Dns_enum.Domain_issued_certificate
+      t.Udns_packet.tlsa_matching_type = Udns_enum.Tlsa_no_hash &&
+      t.Udns_packet.tlsa_cert_usage = Udns_enum.Domain_issued_certificate
     in
-    ((fun t -> tlsa_interesting t && t.Dns_packet.tlsa_selector = Dns_enum.Tlsa_selector_private),
-     (fun t -> tlsa_interesting t && t.Dns_packet.tlsa_selector = Dns_enum.Tlsa_full_certificate))
+    ((fun t -> tlsa_interesting t && t.Udns_packet.tlsa_selector = Udns_enum.Tlsa_selector_private),
+     (fun t -> tlsa_interesting t && t.Udns_packet.tlsa_selector = Udns_enum.Tlsa_full_certificate))
 
   let valid_and_matches_csr pclock csr cert =
     Logs.info (fun m -> m "does csr and cert match?") ;
     (* parse csr, parse cert: match public keys, match validity of cert *)
     match
-      X509.Encoding.parse_signing_request csr.Dns_packet.tlsa_data,
-      X509.Encoding.parse cert.Dns_packet.tlsa_data
+      X509.Encoding.parse_signing_request csr.Udns_packet.tlsa_data,
+      X509.Encoding.parse cert.Udns_packet.tlsa_data
     with
     | Some csr, Some cert ->
       Logs.info (fun m -> m "was able to parse certificate and csr") ;
@@ -66,7 +66,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
       Logs.err (fun m -> m "couldn't parse csr or cert, returning false from matches") ;
       false
 
-  module Dns_server = Dns_mirage_server.Make(P)(M)(T)(S)
+  module Dns_server = Udns_mirage_server.Make(P)(M)(T)(S)
 
   let start _random pclock mclock _ stack res ctx _ =
     let update_keys, dns_keys =
@@ -74,7 +74,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
           match Astring.String.cut ~sep:":" str_key with
           | None -> invalid_arg "couldn't parse dnskey"
           | Some (name, key) ->
-            match Domain_name.of_string ~hostname:false name, Dns_packet.dnskey_of_string key with
+            match Domain_name.of_string ~hostname:false name, Udns_packet.dnskey_of_string key with
             | Error _, _ | _, None -> invalid_arg "failed to parse dnskey"
             | Ok key_name, Some dnskey ->
               Logs.app (fun m -> m "inserting key for %a" Domain_name.pp key_name) ;
@@ -91,8 +91,8 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
     in
     let dns_server = Key_gen.dns_server () in
     let dns_secondary =
-      UDns_server.Secondary.create ~a:[ UDns_server.Authentication.tsig_auth ]
-        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
+      Udns_server.Secondary.create ~a:[ Udns_server.Authentication.tsig_auth ]
+        ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign
         ~primary:dns_server ~rng:R.generate dns_keys
     in
     (* TODO check that we've for each zone (of the secondary) an update key *)
@@ -153,41 +153,41 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
               let certificate = X509.Encoding.cs_of_cert cert in
               Logs.info (fun m -> m "certificate received for %a" Domain_name.pp name) ;
               Logs.info (fun m -> m "der is %a" Cstruct.hexdump_pp certificate);
-              match Dns_trie.lookup name Dns_map.Tlsa (UDns_server.Secondary.data server) with
+              match Udns_trie.lookup name Udns_map.Tlsa (Udns_server.Secondary.data server) with
               | Error e ->
-                Logs.err (fun m -> m "couldn't find tlsa for %a: %a, removing from in_flight" Domain_name.pp name Dns_trie.pp_e e) ;
+                Logs.err (fun m -> m "couldn't find tlsa for %a: %a, removing from in_flight" Domain_name.pp name Udns_trie.pp_e e) ;
                 in_flight := Domain_name.Set.remove name !in_flight ;
                 Lwt.return_unit
               | Ok (ttl, tlsas) ->
                 let nsupdate =
                   let add =
-                    let tlsa = { Dns_packet.tlsa_cert_usage = Dns_enum.Domain_issued_certificate ;
-                                 tlsa_selector = Dns_enum.Tlsa_full_certificate ;
-                                 tlsa_matching_type = Dns_enum.Tlsa_no_hash ;
+                    let tlsa = { Udns_packet.tlsa_cert_usage = Udns_enum.Domain_issued_certificate ;
+                                 tlsa_selector = Udns_enum.Tlsa_full_certificate ;
+                                 tlsa_matching_type = Udns_enum.Tlsa_no_hash ;
                                  tlsa_data = certificate }
                     in
-                    Dns_packet.Add ({ Dns_packet.name ; ttl ; rdata = Dns_packet.TLSA tlsa })
+                    Udns_packet.Add ({ Udns_packet.name ; ttl ; rdata = Udns_packet.TLSA tlsa })
                   and remove =
-                    Dns_map.TlsaSet.fold
+                    Udns_map.TlsaSet.fold
                       (fun tlsa acc ->
                          if interesting_cert tlsa then
-                           Dns_packet.Remove_single (name, TLSA tlsa) :: acc
+                           Udns_packet.Remove_single (name, TLSA tlsa) :: acc
                          else
                            acc)
                       tlsas []
                   in
-                  let zone = { Dns_packet.q_name = zone ; q_type = Dns_enum.SOA }
+                  let zone = { Udns_packet.q_name = zone ; q_type = Udns_enum.SOA }
                   and update = remove @ [ add ]
                   in
-                  { Dns_packet.zone ; prereq = [] ; update ; addition = []}
+                  { Udns_packet.zone ; prereq = [] ; update ; addition = []}
                 and header =
                   let id = Randomconv.int16 R.generate in
-                  { Dns_packet.id ; query = true ; operation = Dns_enum.Update ;
+                  { Udns_packet.id ; query = true ; operation = Udns_enum.Update ;
                     authoritative = false ; truncation = false ; recursion_desired = false ;
                     recursion_available = false ; authentic_data = false ; checking_disabled = false ;
-                    rcode = Dns_enum.NoError }
+                    rcode = Udns_enum.NoError }
                 in
-                match Dns_tsig.encode_and_sign ~proto:`Tcp header (`Update nsupdate) now dnskey key_name with
+                match Udns_tsig.encode_and_sign ~proto:`Tcp header (`Update nsupdate) now dnskey key_name with
                 | Error msg ->
                   in_flight := Domain_name.Set.remove name !in_flight ;
                   Logs.err (fun m -> m "Error while encoding and signing %s" msg) ;
@@ -207,15 +207,15 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                       Logs.err (fun m -> m "error %s while reading DNS" e)
                     | Ok data ->
                       in_flight := Domain_name.Set.remove name !in_flight ;
-                      match Dns_tsig.decode_and_verify now dnskey key_name ~mac data with
+                      match Udns_tsig.decode_and_verify now dnskey key_name ~mac data with
                       | Error e ->
                         Logs.err (fun m -> m "error %s while decoding nsupdate answer" e)
                       | Ok ((header, _, _, _), _) ->
-                        if header.Dns_packet.rcode = Dns_enum.NoError then
+                        if header.Udns_packet.rcode = Udns_enum.NoError then
                           ()
                         else
                           (* TODO: if badtime, adjust our time (to the other time) and resend ;) *)
-                          Logs.err (fun m -> m "expected noerror, got %a" Dns_enum.pp_rcode header.Dns_packet.rcode))
+                          Logs.err (fun m -> m "expected noerror, got %a" Udns_enum.pp_rcode header.Udns_packet.rcode))
       end
     in
 
@@ -239,17 +239,17 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             | Some key ->
               let react_change name (_, tlsas) () =
                 match
-                  Dns_map.TlsaSet.filter interesting_csr tlsas,
-                  Dns_map.TlsaSet.filter interesting_cert tlsas
+                  Udns_map.TlsaSet.filter interesting_csr tlsas,
+                  Udns_map.TlsaSet.filter interesting_cert tlsas
                 with
-                | x, _ when Dns_map.TlsaSet.is_empty x ->
+                | x, _ when Udns_map.TlsaSet.is_empty x ->
                   Logs.info (fun m -> m "no private selector")
                 | csrs, certs ->
-                  if Dns_map.TlsaSet.cardinal csrs = 1 then
-                    let csr = Dns_map.TlsaSet.choose csrs in
+                  if Udns_map.TlsaSet.cardinal csrs = 1 then
+                    let csr = Udns_map.TlsaSet.choose csrs in
                     let doit =
-                      if Dns_map.TlsaSet.cardinal certs = 1 then
-                        let cert = Dns_map.TlsaSet.choose certs in
+                      if Udns_map.TlsaSet.cardinal certs = 1 then
+                        let cert = Udns_map.TlsaSet.choose certs in
                         if valid_and_matches_csr pclock csr cert then begin
                           Logs.info (fun m -> m "cert exists for csr, doing nothing");
                           false
@@ -257,7 +257,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                           Logs.info (fun m -> m "certificate not valid or doesn't match csr, requesting");
                           true
                         end
-                      else if Dns_map.TlsaSet.is_empty certs then begin
+                      else if Udns_map.TlsaSet.is_empty certs then begin
                         Logs.info (fun m -> m "no certificate found, requesting") ;
                         true
                       end else begin
@@ -266,7 +266,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                       end
                     in
                     if doit then
-                      match X509.Encoding.parse_signing_request csr.Dns_packet.tlsa_data with
+                      match X509.Encoding.parse_signing_request csr.Udns_packet.tlsa_data with
                       | None -> Logs.err (fun m -> m "couldn't parse signing request")
                       | Some csr ->
                         match List.find (function `CN _ -> true | _ -> false) (X509.CA.info csr).X509.CA.subject with
@@ -282,10 +282,10 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                           end
                         | _ -> Logs.err (fun m -> m "cannot find common name of signing request")
               in
-              match Dns_trie.folde zone Dns_map.Tlsa (UDns_server.Secondary.data t) react_change () with
+              match Udns_trie.folde zone Udns_map.Tlsa (Udns_server.Secondary.data t) react_change () with
               | Ok () -> ()
-              | Error e -> Logs.warn (fun m -> m "error %a while folding" Dns_trie.pp_e e))
-          (UDns_server.Secondary.zones t) ;
+              | Error e -> Logs.warn (fun m -> m "error %a while folding" Udns_trie.pp_e e))
+          (Udns_server.Secondary.zones t) ;
         Lwt.return_unit
       in
       Dns_server.secondary ~on_update stack dns_secondary ;

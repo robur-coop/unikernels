@@ -6,25 +6,25 @@ open Mirage_types_lwt
 
 module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (KV : KV_RO) = struct
 
-  module D = Dns_mirage_server.Make(P)(M)(T)(S)
+  module D = Udns_mirage_server.Make(P)(M)(T)(S)
 
   let start _rng pclock mclock _ s kv _ =
     KV.get kv (Mirage_kv.Key.v "zone") >>= function
     | Error e -> Lwt.fail_with "couldn't get zone file"
-    | Ok data -> match Zonefile.load [] data with
+    | Ok data -> match Udns_zonefile.load [] data with
       | Error msg ->
         Logs.err (fun m -> m "zonefile.load: %s" msg) ;
         Lwt.fail_with "zone parser"
       | Ok rrs ->
-        let trie = Dns_trie.insert_map (Dns_map.of_rrs rrs) Dns_trie.empty in
-        match Dns_trie.check trie with
+        let trie = Udns_trie.insert_map (Udns_map.of_rrs rrs) Udns_trie.empty in
+        match Udns_trie.check trie with
          | Error e ->
-           Logs.err (fun m -> m "error %a during check()" Dns_trie.pp_err e) ;
+           Logs.err (fun m -> m "error %a during check()" Udns_trie.pp_err e) ;
            Lwt.fail_with "check failed"
          | Ok () ->
            let t =
-             UDns_server.Primary.create ~a:[UDns_server.Authentication.tsig_auth]
-               ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
+             Udns_server.Primary.create ~a:[Udns_server.Authentication.tsig_auth]
+               ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign
                ~rng:R.generate trie
            in
            D.primary s t ;

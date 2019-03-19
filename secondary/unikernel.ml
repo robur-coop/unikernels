@@ -5,20 +5,18 @@ open Lwt.Infix
 open Mirage_types_lwt
 
 module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = struct
-  module D = Dns_mirage_server.Make(P)(M)(T)(S)
+  module D = Udns_mirage_server.Make(P)(M)(T)(S)
 
   let start _rng pclock mclock _ s _ =
-    let keys = List.fold_left (fun acc key ->
-        match Astring.String.cut ~sep:":" key with
-        | None -> Logs.err (fun m -> m "couldn't parse %s" key) ; acc
-        | Some (name, key) -> match Domain_name.of_string ~hostname:false name, Dns_packet.dnskey_of_string key with
-          | Error _, _ | _, None -> Logs.err (fun m -> m "failed to parse key %s" key) ; acc
-          | Ok name, Some dnskey -> (name, dnskey) :: acc)
+    let keys = List.fold_left (fun acc str ->
+        match Udns_packet.name_dnskey_of_string str with
+        | Error (`Msg msg) -> Logs.err (fun m -> m "key parse error: %s" msg) ; acc
+        | Ok (name, key) -> (name, key) :: acc)
         [] (Key_gen.keys ())
     in
     let t =
-      UDns_server.Secondary.create ~a:[ UDns_server.Authentication.tsig_auth ]
-        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
+      Udns_server.Secondary.create ~a:[ Udns_server.Authentication.tsig_auth ]
+        ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign
         ~rng:R.generate keys
     in
     D.secondary s t ;
