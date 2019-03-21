@@ -17,7 +17,8 @@ secondary_git
 *key
 *private
 *native
-static*ml
+static*ml*
+info_gen.ml*
 
 *req
 *pem
