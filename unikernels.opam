@@ -9,6 +9,7 @@ license: "public domain"
 
 depends: [
   "mirage" {>= "3.4.1"}
+  "ocaml" {>= "4.07.0"}
 ]
 
 synopsis: "Unikernels developed by the robur.io team"

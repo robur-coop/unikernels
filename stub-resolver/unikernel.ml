@@ -15,7 +15,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     in
     let keys = [
       Domain_name.of_string_exn ~hostname:false "foo._key-management",
-      { Udns_packet.flags = 0 ; key_algorithm = Udns_enum.SHA256 ; key = Cstruct.of_string "/NzgCgIc4yKa7nZvWmODrHMbU+xpMeGiDLkZJGD/Evo=" }
+      { Udns.Dnskey.flags = 0 ; algorithm = SHA256 ; key = Cstruct.of_string "/NzgCgIc4yKa7nZvWmODrHMbU+xpMeGiDLkZJGD/Evo=" }
     ] in
     let trie =
       let name = Domain_name.of_string_exn "resolver"
@@ -23,9 +23,9 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
       in
       let trie =
         Udns_trie.insert Domain_name.root
-          Udns_map.Ns (300l, Domain_name.Set.singleton name) trie
+          Udns.Rr_map.Ns (300l, Domain_name.Set.singleton name) trie
       in
-      Udns_trie.insert name Udns_map.A (300l, Udns_map.Ipv4Set.singleton ip) trie
+      Udns_trie.insert name Udns.Rr_map.A (300l, Udns.Rr_map.Ipv4_set.singleton ip) trie
     in
     (match Udns_trie.check trie with
      | Ok () -> ()

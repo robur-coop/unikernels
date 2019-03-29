@@ -48,7 +48,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
                   | Error e -> Logs.warn (fun m -> m "Store.set failed")
                   | Ok () -> ()) >|= fun () ->
             (* try to load it again... just in case ;) *)
-            match Udns_zonefile.load [] str with
+            match Udns_zonefile.load str with
             | Error msg ->
               Logs.err (fun m -> m "error while loading zonefile: %s" msg)
             | Ok rrs ->
@@ -61,7 +61,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
                  Logs.err (fun m -> m "error %a during check()" Udns_trie.pp_err e)) ;
               (* and generate a zonefile from the trie *)
               let s = Udns_server.Secondary.with_data t trie in
-              match Udns_server.text zone (Udns_server.Secondary.server s) with
+              match Udns_server.text zone trie with
               | Error str ->
                 Logs.err (fun m -> m "failed to produce zone %a second time %s"
                              Domain_name.pp zone str)

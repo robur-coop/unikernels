@@ -11,12 +11,12 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (KV 
   let start _rng pclock mclock _ s kv _ =
     KV.get kv (Mirage_kv.Key.v "zone") >>= function
     | Error e -> Lwt.fail_with "couldn't get zone file"
-    | Ok data -> match Udns_zonefile.load [] data with
+    | Ok data -> match Udns_zonefile.load data with
       | Error msg ->
         Logs.err (fun m -> m "zonefile.load: %s" msg) ;
         Lwt.fail_with "zone parser"
       | Ok rrs ->
-        let trie = Udns_trie.insert_map (Udns_map.of_rrs rrs) Udns_trie.empty in
+        let trie = Udns_trie.insert_map rrs Udns_trie.empty in
         match Udns_trie.check trie with
          | Error e ->
            Logs.err (fun m -> m "error %a during check()" Udns_trie.pp_err e) ;

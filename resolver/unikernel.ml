@@ -15,7 +15,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     in
     let keys = [
       Domain_name.of_string_exn ~hostname:false "foo._key-management" ,
-      { Udns_packet.flags = 0 ; key_algorithm = Udns_enum.SHA256 ; key = Cstruct.of_string "/NzgCgIc4yKa7nZvWmODrHMbU+xpMeGiDLkZJGD/Evo=" }
+      { Udns.Dnskey.flags = 0 ; algorithm = SHA256 ; key = Cstruct.of_string "/NzgCgIc4yKa7nZvWmODrHMbU+xpMeGiDLkZJGD/Evo=" }
     ] in
     (match Udns_trie.check trie with
      | Ok () -> ()

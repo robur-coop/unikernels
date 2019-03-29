@@ -38,12 +38,12 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
                   Fmt.(list ~sep:(unit ",@ ") (pair ~sep:(unit ": ") string int))
                   (List.map (fun (k, v) -> k, String.length v) bindings)) ;
     List.fold_left (fun trie (k, data) ->
-        match Udns_zonefile.load [] data with
+        match Udns_zonefile.load data with
         | Error msg ->
           Logs.err (fun m -> m "error while loading zonefile %s: %s" k msg) ;
           trie
         | Ok rrs ->
-          let trie' = Udns_trie.insert_map (Udns_map.of_rrs rrs) trie in
+          let trie' = Udns_trie.insert_map rrs trie in
           match Udns_trie.check trie' with
           | Ok () -> trie'
           | Error e ->
@@ -56,7 +56,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
 
   let store_zone t zone =
     (* TODO maybe make this conditionally on modifications of the zone? *)
-    match Udns_server.text zone (Udns_server.Primary.server t) with
+    match Udns_server.text zone (Udns_server.Primary.data t) with
     | Error msg ->
       Logs.err (fun m -> m "error while converting zone %a: %s" Domain_name.pp zone msg) ;
       assert false
@@ -66,7 +66,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
   let store_zones t resolver conduit =
     let data = Udns_server.Primary.data t in
     match
-      Udns_trie.folde (Domain_name.root) Udns_map.Soa data
+      Udns_trie.folde (Domain_name.root) Udns.Rr_map.Soa data
         (fun dname _ acc -> store_zone t dname :: acc) []
     with
     | Error e ->
@@ -92,7 +92,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
 
   let start _rng _pclock _mclock _time s resolver conduit _ =
     let keys = List.fold_left (fun acc str ->
-        match Udns_packet.name_dnskey_of_string str with
+        match Udns.Dnskey.name_key_of_string str with
         | Error (`Msg msg) -> Logs.err (fun m -> m "key parse error: %s" msg) ; acc
         | Ok (name, key) -> (name, key) :: acc)
         [] (Key_gen.keys ())
