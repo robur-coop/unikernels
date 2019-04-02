@@ -48,6 +48,7 @@ let packages =
     package "logs" ;
     package ~pin "udns";
     package ~pin "udns-tsig";
+    package ~pin "udns-certify";
     package ~pin "udns-mirage";
     package ~pin "udns-mirage-certify";
     package ~sublibs:[ "mirage" ] "tls" ;
