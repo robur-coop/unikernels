@@ -11,8 +11,8 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (KV 
   let start _rng pclock mclock _ s kv _ =
     KV.get kv (Mirage_kv.Key.v "zone") >>= function
     | Error e -> Lwt.fail_with "couldn't get zone file"
-    | Ok data -> match Udns_zonefile.load data with
-      | Error msg ->
+    | Ok data -> match Udns_zone.parse data with
+      | Error (`Msg msg) ->
         Logs.err (fun m -> m "zonefile.load: %s" msg) ;
         Lwt.fail_with "zone parser"
       | Ok rrs ->

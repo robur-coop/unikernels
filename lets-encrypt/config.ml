@@ -16,6 +16,10 @@ let dns_server =
   let doc = Key.Arg.info ~doc:"dns server IP" ["dns-server"] in
   Key.(create "dns-server" Arg.(opt ipv4_address Ipaddr.V4.localhost doc))
 
+let port =
+  let doc = Key.Arg.info ~doc:"dns server port" ["port"] in
+  Key.(create "port" Arg.(opt int 53 doc))
+
 let account_key_seed =
   let doc = Key.Arg.info ~doc:"account key seed" ["account-key-seed"] in
   Key.(create "account-key-seed" Arg.(opt string "" doc))
@@ -25,7 +29,7 @@ let production =
   Key.(create "production" Arg.(flag doc))
 
 let keys = Key.[
-    abstract dns_keys ; abstract dns_server ;
+    abstract dns_keys ; abstract dns_server ; abstract port ;
     abstract account_key_seed ; abstract production
   ]
 

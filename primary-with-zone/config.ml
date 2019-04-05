@@ -11,7 +11,7 @@ let dns_handler =
       package "logs" ;
       package ~pin "udns";
       package ~pin "udns-server";
-      package ~pin "udns-zonefile";
+      package ~pin "udns-zone";
       package ~pin "udns-mirage-server";
       package ~pin "udns-tsig";
       package "nocrypto";

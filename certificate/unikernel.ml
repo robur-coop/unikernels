@@ -63,15 +63,19 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S: Mirage_stack_l
     let ca = if Key_gen.production () then `Production else `Staging in
     D.retrieve_certificate ~ca stack ~dns_key:(Key_gen.dns_key ())
       ~hostname ~additional_hostnames ?key_seed:(Key_gen.key_seed ())
-      (Key_gen.dns_server ()) (Key_gen.dns_port ()) >>= fun own_cert ->
-    (match own_cert with
-     | `None -> Logs.err (fun m -> m "own_cert is none")
-     | `Single chain -> log_certchain chain
-     | `Multiple chains -> List.iter log_certchain chains
-     | `Multiple_default (chain, chains) ->
-       log_certchain chain ;
-       List.iter log_certchain chains) ;
-    let config = Tls.Config.server ~certificates:own_cert () in
-    S.listen_tcpv4 stack ~port:(Key_gen.port ()) (accept config handle) ;
-    S.listen stack
+      (Key_gen.dns_server ()) (Key_gen.dns_port ()) >>= function
+    | Error (`Msg msg) ->
+      Logs.err (fun m -> m "error %s while retrieving certificate, giving up" msg);
+      Lwt.return_unit
+    | Ok own_cert ->
+      (match own_cert with
+      | `None -> Logs.err (fun m -> m "own_cert is none")
+      | `Single chain -> log_certchain chain
+      | `Multiple chains -> List.iter log_certchain chains
+      | `Multiple_default (chain, chains) ->
+        log_certchain chain ;
+        List.iter log_certchain chains) ;
+      let config = Tls.Config.server ~certificates:own_cert () in
+      S.listen_tcpv4 stack ~port:(Key_gen.port ()) (accept config handle) ;
+      S.listen stack
 end
