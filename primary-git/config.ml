@@ -16,6 +16,10 @@ let dns_handler =
   let git_pin = "git+https://github.com/hannesm/ocaml-git.git#minor" in
   let packages = [
     package "logs" ;
+    package ~pin:udns_pin "udns";
+    package ~pin:udns_pin "udns-client";
+    package ~pin:udns_pin "udns-mirage-client";
+    package ~pin:udns_pin "udns-mirage";
     package ~pin:udns_pin "udns-server";
     package ~pin:udns_pin "udns-zone";
     package ~pin:udns_pin "udns-mirage-server";
