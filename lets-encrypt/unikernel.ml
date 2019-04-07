@@ -242,10 +242,13 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
     Conduit_mirage.with_tls ctx >>= fun ctx ->
     let ctx = Cohttp_mirage.Client.ctx res ctx in
     let directory =
-      if Key_gen.production () then
+      if Key_gen.production () then begin
+        Logs.warn (fun m -> m "production environment - take care what you do");
         Letsencrypt.letsencrypt_url
-      else
+      end else begin
+        Logs.warn (fun m -> m "staging environment - test use only");
         Letsencrypt.letsencrypt_staging_url
+      end
     in
     Acme.initialise ~ctx ~directory account_key >>= function
     | Error (`Msg e) -> Logs.err (fun m -> m "error %s" e) ; Lwt.return_unit
