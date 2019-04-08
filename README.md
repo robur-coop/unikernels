@@ -38,8 +38,8 @@ All unikernels use the default stack implementation, and thus will listen on
 
 The [`primary`](primary/) subdirectory contains an unikernel with the hardcoded
 zone (in its [unikernel.ml](primary/unikernel.ml)) named `mirage` and some
-resource records.  It also configures several TSIG keys, one for the seconday,
-another for update, transfer, and key-management.
+resource records.  It also configures several TSIG keys, one for the secondary,
+one for update operations and another one for transfer operations.
 
 The [`primary-with-zone`](primary-with-zone/) contains no hardcoded
 configuration, but serves [`data/zone`](primary-with-zone/data/zone) instead.
@@ -83,9 +83,7 @@ DNS as `TLSA` record.
 
 ## Caching resolvers
 
-The [`resolver`](resolver/) subdirectory contains a recursive resolver.  A
-single key-management key is included,
-`foo._key-management:SHA256:/NzgCgIc4yKa7nZvWmODrHMbU+xpMeGiDLkZJGD/Evo=`.
+The [`resolver`](resolver/) subdirectory contains an iterative resolver.
 
 The [`stub-resolver`](stub-resolver/) subdirectory contains a stub resolver,
 which forwards all requests to `141.1.1.1`.

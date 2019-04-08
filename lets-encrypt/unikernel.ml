@@ -95,10 +95,11 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
         (Domain_name.Map.empty, []) (Key_gen.dns_keys ())
     in
     let dns_server = Key_gen.dns_server () in
+    (* TODO rework to use ip from transfer key! *)
     let dns_secondary =
       Udns_server.Secondary.create ~a:[ Udns_server.Authentication.tsig_auth ]
         ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign
-        ~primary:dns_server ~rng:R.generate dns_keys
+        ~rng:R.generate dns_keys
     in
     (* TODO check that we've for each zone (of the secondary) an update key *)
 

@@ -76,8 +76,6 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
         key "/WcnjpqrErYrXi1dd4sv8dfwCwDFg0ZGm6N6Bq1VwMI=" ;
         Domain_name.of_string_exn ~hostname:false "one._update.mirage" ,
         key "eRhj4OoaGIIJ3I9hJFwYGhAkdiR5DNzia0WoGrYy70k=" ;
-        Domain_name.of_string_exn ~hostname:false "foo._key-management" ,
-        key "/NzgCgIc4yKa7nZvWmODrHMbU+xpMeGiDLkZJGD/Evo=" ;
       ]
     in
     let t =

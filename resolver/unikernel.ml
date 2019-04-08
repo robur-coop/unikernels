@@ -13,17 +13,13 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
         (fun trie (k, v) -> Udns_trie.insertb k v trie)
         Udns_trie.empty Udns_resolver_root.reserved_zones
     in
-    let keys = [
-      Domain_name.of_string_exn ~hostname:false "foo._key-management" ,
-      { Udns.Dnskey.flags = 0 ; algorithm = SHA256 ; key = Cstruct.of_string "/NzgCgIc4yKa7nZvWmODrHMbU+xpMeGiDLkZJGD/Evo=" }
-    ] in
     (match Udns_trie.check trie with
      | Ok () -> ()
      | Error e ->
        Logs.err (fun m -> m "check after update returned %a" Udns_trie.pp_err e)) ;
     let now = M.elapsed_ns mclock in
     let server =
-      Udns_server.Primary.create ~keys ~a:[Udns_server.Authentication.tsig_auth]
+      Udns_server.Primary.create ~a:[Udns_server.Authentication.tsig_auth]
         ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign ~rng:R.generate
         trie
     in
