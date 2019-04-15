@@ -200,13 +200,11 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                   in
                   let update = Domain_name.Map.singleton tlsa_name (remove @ [ add ]) in
                   (Domain_name.Map.empty, update)
-                and zone = (zone, Udns_enum.SOA)
-                and header =
-                  let id = Randomconv.int16 R.generate in
-                  { Packet.Header.id ; query = true ; operation = Udns_enum.Update ;
-                    rcode = Udns_enum.NoError ; flags = Packet.Header.FS.empty }
+                and zone = (zone, Rr.SOA)
+                and header = (Randomconv.int16 R.generate, Packet.Header.FS.empty)
                 in
-                match Udns_tsig.encode_and_sign ~proto:`Tcp header zone (`Update update) now dnskey keyname with
+                let packet = Packet.create header zone (`Update update) in
+                match Udns_tsig.encode_and_sign ~proto:`Tcp packet now dnskey keyname with
                 | Error s ->
                   remove_flight tlsa_name;
                   Logs.err (fun m -> m "Error %a while encoding and signing %a" Udns_tsig.pp_s s Domain_name.pp tlsa_name);
@@ -230,12 +228,13 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                       | Error e ->
                         Logs.err (fun m -> m "error %a while decoding nsupdate answer %a"
                                      Udns_tsig.pp_e e Domain_name.pp tlsa_name)
-                      | Ok (res, _, _) when Packet.is_reply header zone res -> ()
                       | Ok (res, _, _) ->
-                        (* TODO: if badtime, adjust our time (to the other time) and resend ;) *)
-                        Logs.err (fun m -> m "invalid reply for %a %a, got %a"
-                                     Packet.Header.pp header Packet.Question.pp zone
-                                     Packet.pp_res res))
+                        match Packet.reply_matches_request ~request:packet res with
+                        | Ok _ -> ()
+                        | Error e ->
+                          (* TODO: if badtime, adjust our time (to the other time) and resend ;) *)
+                          Logs.err (fun m -> m "invalid reply %a for %a, got %a"
+                                       Packet.pp_mismatch e Packet.pp packet Packet.pp res))
       end
     in
 

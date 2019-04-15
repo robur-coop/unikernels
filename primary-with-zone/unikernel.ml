@@ -19,7 +19,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (KV 
         let trie = Udns_trie.insert_map rrs Udns_trie.empty in
         match Udns_trie.check trie with
          | Error e ->
-           Logs.err (fun m -> m "error %a during check()" Udns_trie.pp_err e) ;
+           Logs.err (fun m -> m "error %a during check()" Udns_trie.pp_zone_check e) ;
            Lwt.fail_with "check failed"
          | Ok () ->
            let t =

@@ -60,7 +60,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     (match Udns_trie.check trie with
      | Ok () -> ()
      | Error e ->
-       Logs.err (fun m -> m "error %a during check()" Udns_trie.pp_err e) ;
+       Logs.err (fun m -> m "error %a during check()" Udns_trie.pp_zone_check e) ;
        invalid_arg "check") ;
     let keys =
       let key key =
@@ -84,7 +84,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
         ~tsig_sign:Udns_tsig.sign ~rng:R.generate trie
     in
     Logs.info (fun m -> m "loaded zone: %a"
-                  (Rresult.R.pp ~ok:Fmt.string ~error:Fmt.string)
+                  (Rresult.R.pp ~ok:Fmt.string ~error:Rresult.R.pp_msg)
                   (Udns_server.text (Domain_name.of_string_exn "mirage") trie)) ;
     D.primary s t ;
     S.listen s

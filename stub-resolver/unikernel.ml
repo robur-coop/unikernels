@@ -26,7 +26,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     (match Udns_trie.check trie with
      | Ok () -> ()
      | Error e ->
-       Logs.err (fun m -> m "check after update returned %a" Udns_trie.pp_err e)) ;
+       Logs.err (fun m -> m "check after update returned %a" Udns_trie.pp_zone_check e)) ;
     let now = M.elapsed_ns mclock in
     let server =
       Udns_server.Primary.create ~a:[Udns_server.Authentication.tsig_auth]

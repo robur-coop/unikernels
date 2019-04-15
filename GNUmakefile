@@ -1,6 +1,7 @@
 -include Makefile.config
 
 #  secondary-git
+#  primary-git
 UNIKERNELS = \
   primary \
   primary-with-zone \
@@ -9,8 +10,7 @@ UNIKERNELS = \
   stub-resolver \
   certificate \
   lets-encrypt \
-  client \
-  primary-git
+  client
 
 MIRAGE_FLAGS += --prng fortuna
 MODE ?= "unix"
