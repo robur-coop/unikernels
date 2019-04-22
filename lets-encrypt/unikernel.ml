@@ -200,7 +200,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                   in
                   let update = Domain_name.Map.singleton tlsa_name (remove @ [ add ]) in
                   (Domain_name.Map.empty, update)
-                and zone = (zone, Rr.SOA)
+                and zone = Packet.Question.create zone Rr_map.Soa
                 and header = (Randomconv.int16 R.generate, Packet.Flags.empty)
                 in
                 let packet = Packet.create header zone (`Update update) in
