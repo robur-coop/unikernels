@@ -22,11 +22,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (KV 
            Logs.err (fun m -> m "error %a during check()" Udns_trie.pp_zone_check e) ;
            Lwt.fail_with "check failed"
          | Ok () ->
-           let t =
-             Udns_server.Primary.create ~a:[Udns_server.Authentication.tsig_auth]
-               ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign
-               ~rng:R.generate trie
-           in
+           let t = Udns_server.Primary.create ~rng:R.generate trie in
            D.primary s t ;
            S.listen s
 end

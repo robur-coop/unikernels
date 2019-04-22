@@ -12,7 +12,6 @@ let dns_handler =
       package ~pin "udns-server";
       package ~pin "udns-resolver";
       package ~pin "udns-mirage-resolver";
-      package ~pin "udns-tsig";
       package "randomconv" ;
       package "lru" ;
       package "rresult" ;

@@ -10,9 +10,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
   let start _r pclock mclock _ s _ =
     let now = M.elapsed_ns mclock in
     let server =
-      Udns_server.Primary.create ~a:[Udns_server.Authentication.tsig_auth]
-        ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign ~rng:R.generate
-        Udns_resolver_root.reserved
+      Udns_server.Primary.create ~rng:R.generate Udns_resolver_root.reserved
     in
     let p = Udns_resolver.create now R.generate server in
     D.resolver ~timer:1000 ~root:true s p ;
