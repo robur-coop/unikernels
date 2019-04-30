@@ -97,7 +97,8 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
     let dns_server = Key_gen.dns_server () in
     (* TODO rework to use ip from transfer key! *)
     let dns_secondary =
-      Udns_server.Secondary.create ~a:[ Udns_server.Authentication.tsig_auth ]
+      Udns_server.Secondary.create ~primary:dns_server
+        ~a:[ Udns_server.Authentication.tsig_auth ]
         ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign
         ~rng:R.generate dns_keys
     in
@@ -155,17 +156,19 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
     in
     let request_certificate server le ctx ~zone ~tlsa_name ~keyname dnskey csr =
       if mem_flight tlsa_name then
-        Logs.err (fun m -> m "request with %a already in-flight" Domain_name.pp tlsa_name)
+        Logs.err (fun m -> m "request with %a already in-flight"
+                     Domain_name.pp tlsa_name)
       else begin
         Logs.info (fun m -> m "running let's encrypt service for %a"
                       Domain_name.pp tlsa_name);
         add_flight tlsa_name;
         (* request new cert in async *)
         Lwt.async (fun () ->
+            (* may get rid of it, once our AXFR with the challenge has been received by us, ask for the cert! :) *)
             let sleep () = OS.Time.sleep_ns (Duration.of_sec 3) in
             let now = Ptime.v (P.now_d_ps ()) in
             let id = Randomconv.int16 R.generate in
-            let solver = Letsencrypt.Client.default_dns_solver id now send_dns ~recv:recv_dns keyname dnskey in
+            let solver = Letsencrypt.Client.default_dns_solver id now send_dns ~recv:recv_dns ~keyname dnskey ~zone in
             Acme.sign_certificate ~ctx ~solver le sleep csr >>= function
             | Error (`Msg e) ->
               Logs.err (fun m -> m "error %s while signing %a" e Domain_name.pp tlsa_name);
