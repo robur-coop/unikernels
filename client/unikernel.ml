@@ -4,7 +4,7 @@ open Lwt.Infix
 
 module Main (S : Mirage_stack_lwt.V4) = struct
 
-  module DNS = Udns_mirage_client.Make(S)
+  module DNS = Dns_mirage_client.Make(S)
 
   let start s _ =
     let t = DNS.create s in

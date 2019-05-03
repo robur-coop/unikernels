@@ -4,13 +4,13 @@ open Mirage_types_lwt
 
 open Lwt.Infix
 
-open Udns
+open Dns
 
 module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S)= struct
   module Acme = Letsencrypt.Client.Make(Cohttp_mirage.Client)
 
-  module Dns = Udns_mirage.Make(S)
-  module Dns_server = Udns_mirage_server.Make(P)(M)(T)(S)
+  module D = Dns_mirage.Make(S)
+  module DS = Dns_mirage_server.Make(P)(M)(T)(S)
 
   let gen_rsa seed =
     let seed = Cstruct.of_string seed in
@@ -97,9 +97,9 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
     let dns_server = Key_gen.dns_server () in
     (* TODO rework to use ip from transfer key! *)
     let dns_secondary =
-      Udns_server.Secondary.create ~primary:dns_server
-        ~a:[ Udns_server.Authentication.tsig_auth ]
-        ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign
+      Dns_server.Secondary.create ~primary:dns_server
+        ~a:[ Dns_server.Authentication.tsig_auth ]
+        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
         ~rng:R.generate dns_keys
     in
     (* TODO check that we've for each zone (of the secondary) an update key *)
@@ -118,11 +118,11 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             | Error e ->
               Logs.err (fun m -> m "failed to create connection to NS: %a" S.TCPV4.pp_error e) ;
               Lwt.return (Error (`Msg (Fmt.to_to_string S.TCPV4.pp_error e)))
-            | Ok f -> flow := Some (Dns.of_flow f) ; send false
+            | Ok f -> flow := Some (D.of_flow f) ; send false
           else
             Lwt.return_error (`Msg "couldn't reach authoritative nameserver")
         | Some f ->
-          Dns.send_tcp (Dns.flow f) data >>= function
+          D.send_tcp (D.flow f) data >>= function
           | Error () -> flow := None ; send (not again)
           | Ok () -> Lwt.return_ok ()
       in
@@ -132,7 +132,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
       match !flow with
       | None -> Lwt.return_error (`Msg "no TCP flow")
       | Some f ->
-        Dns.read_tcp f >|= function
+        D.read_tcp f >|= function
         | Ok data -> Ok data
         | Error () -> Error (`Msg "error while reading from flow")
     in
@@ -177,10 +177,10 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             | Ok cert ->
               let certificate = X509.Encoding.cs_of_cert cert in
               Logs.info (fun m -> m "certificate received for %a" Domain_name.pp tlsa_name);
-              match Udns_trie.lookup tlsa_name Rr_map.Tlsa (Udns_server.Secondary.data server) with
+              match Dns_trie.lookup tlsa_name Rr_map.Tlsa (Dns_server.Secondary.data server) with
               | Error e ->
                 Logs.err (fun m -> m "lookup error for tlsa %a: %a (expected the signing request!)"
-                             Domain_name.pp tlsa_name Udns_trie.pp_e e);
+                             Domain_name.pp tlsa_name Dns_trie.pp_e e);
                 remove_flight tlsa_name;
                 Lwt.return_unit
               | Ok (ttl, tlsas) ->
@@ -207,10 +207,10 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                 and header = (Randomconv.int16 R.generate, Packet.Flags.empty)
                 in
                 let packet = Packet.create header zone (`Update update) in
-                match Udns_tsig.encode_and_sign ~proto:`Tcp packet now dnskey keyname with
+                match Dns_tsig.encode_and_sign ~proto:`Tcp packet now dnskey keyname with
                 | Error s ->
                   remove_flight tlsa_name;
-                  Logs.err (fun m -> m "Error %a while encoding and signing %a" Udns_tsig.pp_s s Domain_name.pp tlsa_name);
+                  Logs.err (fun m -> m "Error %a while encoding and signing %a" Dns_tsig.pp_s s Domain_name.pp tlsa_name);
                   Lwt.return_unit
                 | Ok (data, mac) ->
                   send_dns data >>= function
@@ -227,10 +227,10 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                       Logs.err (fun m -> m "error %s while reading DNS %a" e Domain_name.pp tlsa_name)
                     | Ok data ->
                       remove_flight tlsa_name;
-                      match Udns_tsig.decode_and_verify now dnskey keyname ~mac data with
+                      match Dns_tsig.decode_and_verify now dnskey keyname ~mac data with
                       | Error e ->
                         Logs.err (fun m -> m "error %a while decoding nsupdate answer %a"
-                                     Udns_tsig.pp_e e Domain_name.pp tlsa_name)
+                                     Dns_tsig.pp_e e Domain_name.pp tlsa_name)
                       | Ok (res, _, _) ->
                         match Packet.reply_matches_request ~request:packet res with
                         | Ok _ -> ()
@@ -294,8 +294,8 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
           in
           find_key base
         in
-        let trie = Udns_server.Secondary.data t in
-        Udns_trie.fold Udns.Rr_map.Tlsa trie
+        let trie = Dns_server.Secondary.data t in
+        Dns_trie.fold Dns.Rr_map.Tlsa trie
           (fun name (_, tlsas) () ->
              (* name of interest? *)
              if name_of_interest name then
@@ -330,13 +330,13 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                  in
                  if interesting then
                    (* update key exists? *)
-                   match find_update_key name, Udns_trie.zone name trie with
+                   match find_update_key name, Dns_trie.zone name trie with
                    | None, _ ->
                      Logs.err (fun m -> m "couldn't find an update key for %a"
                                   Domain_name.pp name)
                    | _, Error e ->
                      Logs.err (fun m -> m "error %a while looking up zone for %a"
-                                  Udns_trie.pp_e e Domain_name.pp name)
+                                  Dns_trie.pp_e e Domain_name.pp name)
                    | Some (keyname, key), Ok (zone, _) ->
                      match X509.Encoding.parse_signing_request csr.Tlsa.data with
                      | None -> Logs.err (fun m -> m "couldn't parse signing request")
@@ -361,6 +361,6 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                Logs.warn (fun m -> m "name not interesting %a" Domain_name.pp name)) ();
         Lwt.return_unit
       in
-      Dns_server.secondary ~on_update stack dns_secondary ;
+      DS.secondary ~on_update stack dns_secondary ;
       S.listen stack
 end

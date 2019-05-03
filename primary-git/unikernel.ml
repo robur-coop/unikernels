@@ -46,19 +46,17 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
                     (List.map (fun (k, v) -> k, String.length v) bindings)) ;
       let open Rresult.R.Infix in
       let parse_and_maybe_add trie zone data =
-        Udns_zone.parse data >>= fun rrs ->
+        Dns_zone.parse data >>= fun rrs ->
         if not (Domain_name.Map.for_all (fun name _ -> Domain_name.sub ~domain:zone ~subdomain:name) rrs) then
           Error (`Msg (Fmt.strf "an entry of %a is not in its zone, won't handle this@.%a"
-                         Domain_name.pp zone Udns.Name_rr_map.pp rrs))
+                         Domain_name.pp zone Dns.Name_rr_map.pp rrs))
         else
-          let trie' = Udns_trie.insert_map rrs trie in
-          let err_to_str =
-            function Ok x -> Ok x | Error e -> Error (`Msg (Fmt.to_to_string Udns_trie.pp_err e))
-          in
-          err_to_str (Udns_trie.check trie') >>= fun () ->
+          let trie' = Dns_trie.insert_map rrs trie in
+          Rresult.R.reword_error
+            (fun e -> `Msg (Fmt.to_to_string Dns_trie.pp_zone_check e))
+            (Dns_trie.check trie') >>= fun () ->
           (* this prints all zones of the trie' *)
-          let str_to_msg = function Ok x -> Ok x | Error e -> Error (`Msg e) in
-          str_to_msg (Udns_server.text zone trie') >>| fun zone_data ->
+          Dns_server.text zone trie' >>| fun zone_data ->
           Logs.info (fun m -> m "loade zone %a" Domain_name.pp zone);
           Logs.info (fun m -> m "loaded zone@.%s" zone_data);
           trie'
@@ -66,12 +64,12 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
       List.fold_left (fun acc (zone, data) ->
           acc >>= fun trie ->
           parse_and_maybe_add trie zone data)
-        (Ok Udns_trie.empty) bindings
+        (Ok Dns_trie.empty) bindings
 
   let store_zone t store zone =
     (* TODO maybe make this conditionally on modifications of the zone? *)
-    match Udns_server.text zone (Udns_server.Primary.data t) with
-    | Error msg ->
+    match Dns_server.text zone (Dns_server.Primary.data t) with
+    | Error (`Msg msg) ->
       Logs.err (fun m -> m "error while converting zone %a: %s" Domain_name.pp zone msg) ;
       Lwt.return_unit
     | Ok data ->
@@ -86,12 +84,12 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
       | Error _ -> Logs.err (fun m -> m "error while writing to store")
 
   let store_zones ~old t store upstream =
-    let data = Udns_server.Primary.data t in
+    let data = Dns_server.Primary.data t in
     let zones =
-      Udns_trie.fold Udns.Rr_map.Soa data
+      Dns_trie.fold Dns.Rr_map.Soa data
         (fun dname soa acc ->
-           match Udns_trie.lookup dname Soa old with
-           | Ok old when Udns.Soa.newer ~old soa -> dname :: acc
+           match Dns_trie.lookup dname Soa old with
+           | Ok old when Dns.Soa.newer ~old soa -> dname :: acc
            | Ok _ -> acc
            | Error _ -> dname :: acc)
         []
@@ -106,11 +104,11 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
     | Error `Not_available -> Logs.err (fun m -> m "not available while pushing")
     | Error (`Msg msg) -> Logs.err (fun m -> m "pushing: %s" msg)
 
-  module D = Udns_mirage_server.Make(P)(M)(T)(S)
+  module D = Dns_mirage_server.Make(P)(M)(T)(S)
 
   let start _rng _pclock _mclock _time s resolver conduit _ =
     let keys = List.fold_left (fun acc str ->
-        match Udns.Dnskey.name_key_of_string str with
+        match Dns.Dnskey.name_key_of_string str with
         | Error (`Msg msg) -> Logs.err (fun m -> m "key parse error: %s" msg) ; acc
         | Ok (name, key) -> (name, key) :: acc)
         [] (Key_gen.keys ())
@@ -126,9 +124,9 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
       let on_notify n t =
         (match n with
         | `Notify soa ->
-          Logs.err (fun m -> m "ignoring normal notify %a" Fmt.(option ~none:(unit "no soa") Udns.Soa.pp) soa)
+          Logs.err (fun m -> m "ignoring normal notify %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa)
         | `Signed_notify soa ->
-          Logs.info (fun m -> m "got notified, checking out %a" Fmt.(option ~none:(unit "no soa") Udns.Soa.pp) soa));
+          Logs.info (fun m -> m "got notified, checking out %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa));
         load_git store upstream >|= function
         | Error msg ->
           Logs.err (fun m -> m "error while loading git while in notify, continuing with old data");
@@ -138,8 +136,8 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
           Some trie
     in
     let t =
-      Udns_server.Primary.create ~keys ~a:[Udns_server.Authentication.tsig_auth]
-        ~tsig_verify:Udns_tsig.verify ~tsig_sign:Udns_tsig.sign
+      Dns_server.Primary.create ~keys ~a:[Dns_server.Authentication.tsig_auth]
+        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
         ~rng:R.generate trie
     in
     D.primary ~on_update ~on_notify s t ;

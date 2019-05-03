@@ -42,13 +42,13 @@ let packages =
     package "cohttp-mirage" ;
     package ~pin:"git+https://github.com/hannesm/ocaml-letsencrypt.git#udns" "letsencrypt" ;
     package ~pin:"git+https://github.com/hannesm/ocaml-conduit.git#udns" "mirage-conduit" ;
-    package ~pin "udns";
-    package ~pin "udns-client";
-    package ~pin "udns-mirage-client";
-    package ~pin "udns-tsig";
-    package ~pin "udns-mirage";
-    package ~pin "udns-mirage-server";
-    package ~pin "udns-server";
+    package ~pin "dns";
+    package ~pin "dns-client";
+    package ~pin "dns-mirage-client";
+    package ~pin "dns-tsig";
+    package ~pin "dns-mirage";
+    package ~pin "dns-mirage-server";
+    package ~pin "dns-server";
     package "randomconv" ;
 ]
 
