@@ -9,11 +9,11 @@ let dns_handler =
     let pin = "git+https://github.com/roburio/udns.git" in
     [
       package "logs" ;
-      package ~pin "udns";
-      package ~pin "udns-server";
-      package ~pin "udns-zone";
-      package ~pin "udns-mirage-server";
-      package ~pin "udns-tsig";
+      package ~pin "dns";
+      package ~pin "dns-server";
+      package ~pin "dns-zone";
+      package ~pin "dns-mirage-server";
+      package ~pin "dns-tsig";
       package "nocrypto";
       package ~min:"2.0.0" "mirage-kv-lwt";
     ]

@@ -5,7 +5,7 @@ open Mirage_types_lwt
 open Lwt.Infix
 
 module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S: Mirage_stack_lwt.V4) = struct
-  module D = Udns_mirage_certify.Make(R)(P)(T)(S)
+  module D = Dns_mirage_certify.Make(R)(P)(T)(S)
   module TLS = Tls_mirage.Make(S.TCPV4)
 
   let rec handle flow =
