@@ -26,7 +26,9 @@ let dns_handler =
   foreign
     ~deps:[abstract nocrypto]
     ~packages
-    "Unikernel.Main" (random @-> pclock @-> mclock @-> time @-> network @-> job)
+    "Unikernel.Main" (random @-> pclock @-> mclock @-> time @-> network @-> qubesdb @-> job)
+
+let db = default_qubesdb
 
 let () =
-  register "resolver" [dns_handler $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ default_network ]
+  register "resolver" [dns_handler $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ default_network $ db ]

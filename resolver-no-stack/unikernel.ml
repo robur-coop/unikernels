@@ -9,8 +9,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (N : NETWORK) (DB 
   module U = Udp.Make(I)(R)
   module T = Tcp.Flow.Make(I)(T)(M)(R)
 
-  let start _r pclock mclock _ net db =
-    (* build tcp, udp, arp, and call network listener *)
+  let start _r _pclock mclock _t net db _nc =
     E.connect net >>= fun ethernet ->
     A.connect ethernet >>= fun arp ->
     I.connect db mclock ethernet arp >>= fun ipv4 ->
@@ -26,7 +25,11 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (N : NETWORK) (DB 
     let udp_listener : U.callback = (fun ~src ~dst:_ ~src_port buf -> Lwt.return_unit) in
     let udp_arg : U.ipinput = U.input ~listeners:(fun ~dst_port:_ -> Some udp_listener) udp in
 
-    (* non-dns listener: WE NEED TO MAKE THIS WORK FOR BOTH SERVICES! *)
+    (* ask resolver about a name, send a request, we get the reply, but we have control over the network *)
+    (* at least one other service runs on it - another listener, not network but udp service *)
+    (* you=firewall can't take all packets and send them to dns *)
+
+    Lwt.async (fun () ->
     N.listen net ~header_size:Ethernet_wire.sizeof_ethernet
                   (E.input ~arpv4:(A.input arp)
                      ~ipv4:(I.input
@@ -40,12 +43,10 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (N : NETWORK) (DB 
                            )
                      ~ipv6:(fun _ -> Lwt.return_unit)
                      ethernet
-                  ) >>= fun _res -> (*Lwt.return_unit*)
+                  ) >>= fun _ -> Lwt.return_unit
+
+    );
 
     Lwt.return_unit
+
 end
-
-(* ask resolver about a name, send a request, we get the reply, but we have control over the network *)
-(* at least one other service runs on it - another listener, not network but udp service *)
-(* you=firewall can't take all packets and send them to dns *)
-
