@@ -12,6 +12,8 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
   module U = Udp.Make(I)(R)
   module T = Tcp.Flow.Make(I)(TIME)(M)(R)
 
+  let dns_src_ports : int list ref = ref []
+
   let start _r _pclock mclock _t net db _nc =
     E.connect net >>= fun ethernet ->
     A.connect ethernet >>= fun arp ->
@@ -24,19 +26,17 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       Dns_server.Primary.create ~rng:R.generate Dns_resolver_root.reserved in
     let resolver = Dns_resolver.create ~mode:(`Recursive) now R.generate server in
 
-    (* TODO add dns listener capacity - dispatch needs to happen in udp_arg *)
-
     let is_dns src_port dst_port =
-      (* TODO match dest port to our records *)
-      src_port = 53 in
+      List.mem dst_port !dns_src_ports && src_port = 53 in
 
-    let handle_dns sender source_port buf =
+    let handle_dns sender src_port buf =
       let p_now = Ptime.v (P.now_d_ps ()) in
       let ts = M.elapsed_ns () in
       let query_or_reply = true in
       let proto = `Udp in
-      let dns_handler, _, _ = Dns_resolver.handle_buf resolver p_now ts query_or_reply proto sender source_port buf in
+      let dns_handler, _, _ = Dns_resolver.handle_buf resolver p_now ts query_or_reply proto sender src_port buf in
       Dns_resolver.stats dns_handler;
+      dns_src_ports := List.filter (fun f -> f <> src_port) !dns_src_ports;
       Lwt.return_unit in
 
     let udp_listener = (fun ~src ~dst:_ ~src_port dst_port buf ->
@@ -73,27 +73,34 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
 
     let query_cstruct, _ = Dns_client.make_query `Udp (Domain_name.of_string_exn "robur.io") Dns.Rr_map.A in
 
+    let rec free_port () =
+      let port = Cstruct.BE.get_uint16 (R.generate 2) 0 in
+      if List.mem port !dns_src_ports
+      then free_port ()
+      else port
+    in
 
-    let p_now = Ptime.v (P.now_d_ps ()) in
-    let ts = M.elapsed_ns () in
-    let query_or_reply = true in
-    let proto = `Udp in
-    let sender = List.hd @@ I.get_ip ipv4 in
-    let source_port = 7777 in
-
-    let query_sender (_, dst, dst_port, buf) =
-      U.write ~dst ~dst_port udp buf >>= fun _res ->
+    let send_dns_request src_port (_, dst, dst_port, buf) =
+      dns_src_ports := src_port :: !dns_src_ports ;
+      U.write ~src_port ~dst ~dst_port udp buf >>= fun _res ->
       Lwt.return_unit
     in
 
-    (*
-         outgoing_packets : (Dns.proto * Ipaddr.V4.t * int * Cstruct.t) list
-     * *)
-    let dns_handler, outgoing_packets, _ = Dns_resolver.handle_buf resolver p_now ts query_or_reply proto sender source_port query_cstruct in
-    Dns_resolver.stats dns_handler;
-    Lwt_list.iter_s query_sender outgoing_packets >>= fun () ->
+    let send_test_queries src_port =
+      let p_now = Ptime.v (P.now_d_ps ()) in
+      let ts = M.elapsed_ns () in
+      let query_or_reply = true in
+      let proto = `Udp in
+      let sender = List.hd @@ I.get_ip ipv4 in
 
-    Log.info (fun m -> m "%a" Cstruct.hexdump_pp query_cstruct);
+      let dns_handler, packets, _ = Dns_resolver.handle_buf resolver p_now ts query_or_reply proto sender src_port query_cstruct in
+      Dns_resolver.stats dns_handler;
+      Lwt_list.iter_s (send_dns_request src_port) packets
+    in
+
+    (* TODO manually set src_port to something fresh and free *)
+    let src_port = free_port () in
+    send_test_queries src_port >>= fun () ->
     TIME.sleep_ns 1_000_000_000L
 
 end
