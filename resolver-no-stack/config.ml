@@ -17,6 +17,7 @@ let dns_handler =
       package ~pin "dns";
       package ~pin "dns-mirage";
       package ~pin "dns-resolver";
+      package ~pin "dns-client";
       package "randomconv" ;
       package "lru" ;
       package "rresult" ;
