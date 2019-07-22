@@ -14,6 +14,7 @@ let dns_handler =
       package "tcpip" ~sublibs:["stack-direct"; "icmpv4"; "ipv4"; "udp"; "tcp"];
       package "mirage-qubes";
       package "mirage-qubes-ipv4";
+      package ~pin:"0.3.0" "domain-name";
       package ~pin "dns";
       package ~pin "dns-mirage";
       package ~pin "dns-resolver";
