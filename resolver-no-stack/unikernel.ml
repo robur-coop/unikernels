@@ -24,26 +24,52 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
     let now = M.elapsed_ns mclock in
     let server =
       Dns_server.Primary.create ~rng:R.generate Dns_resolver_root.reserved in
-    let resolver = Dns_resolver.create ~mode:(`Recursive) now R.generate server in
+    let resolver = ref @@ Dns_resolver.create ~mode:(`Recursive) now R.generate server in
 
     let is_dns src_port dst_port =
       List.mem dst_port !dns_src_ports && src_port = 53 in
+
+    let rec free_port () =
+      let port = Cstruct.BE.get_uint16 (R.generate 2) 0 in
+      if List.mem port !dns_src_ports
+      then free_port ()
+      else port
+    in
+
+    let send_dns_response src_port (_, dst, dst_port, buf) =
+      dns_src_ports := src_port :: !dns_src_ports ;
+      U.write ~src_port ~dst ~dst_port udp buf >>= fun _res ->
+      Lwt.return_unit
+    in
+
+    let send_dns_query src_port (_, dst, buf) =
+      dns_src_ports := src_port :: !dns_src_ports ;
+      U.write ~src_port ~dst ~dst_port:53 udp buf >>= fun _res ->
+      Lwt.return_unit
+    in
 
     let handle_dns sender src_port buf =
       let p_now = Ptime.v (P.now_d_ps ()) in
       let ts = M.elapsed_ns () in
       let query_or_reply = true in
       let proto = `Udp in
-      let dns_handler, _, _ = Dns_resolver.handle_buf resolver p_now ts query_or_reply proto sender src_port buf in
-      Dns_resolver.stats dns_handler;
+      let post_request_resolver, answers, upstream_queries =
+        Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port buf in
+      resolver := post_request_resolver;
+      Dns_resolver.stats !resolver;
+      Log.info (fun f -> f "sending %d upstream queries" @@ List.length upstream_queries);
+      Lwt_list.iter_p (send_dns_query @@ free_port ()) upstream_queries >>= fun () ->
+      Log.info (fun f -> f "sitting on %d answers" (List.length answers));
       dns_src_ports := List.filter (fun f -> f <> src_port) !dns_src_ports;
       Lwt.return_unit in
 
     let udp_listener = (fun ~src ~dst:_ ~src_port dst_port buf ->
-        Log.info (fun m -> m "Reply content %a" Cstruct.hexdump_pp buf);
         if is_dns src_port dst_port
         then handle_dns src src_port buf
-        else Lwt.return_unit) in
+        else begin
+          Log.debug (fun f -> f "non-dns packet received; dropping it");
+          Lwt.return_unit end)
+    in
 
     let listeners = (fun ~dst_port -> Some (udp_listener dst_port)) in
 
@@ -73,19 +99,6 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
 
     let query_cstruct, _ = Dns_client.make_query `Udp (Domain_name.of_string_exn "robur.io") Dns.Rr_map.A in
 
-    let rec free_port () =
-      let port = Cstruct.BE.get_uint16 (R.generate 2) 0 in
-      if List.mem port !dns_src_ports
-      then free_port ()
-      else port
-    in
-
-    let send_dns_request src_port (_, dst, dst_port, buf) =
-      dns_src_ports := src_port :: !dns_src_ports ;
-      U.write ~src_port ~dst ~dst_port udp buf >>= fun _res ->
-      Lwt.return_unit
-    in
-
     let send_test_queries src_port =
       let p_now = Ptime.v (P.now_d_ps ()) in
       let ts = M.elapsed_ns () in
@@ -93,14 +106,29 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       let proto = `Udp in
       let sender = List.hd @@ I.get_ip ipv4 in
 
-      let dns_handler, packets, _ = Dns_resolver.handle_buf resolver p_now ts query_or_reply proto sender src_port query_cstruct in
-      Dns_resolver.stats dns_handler;
-      Lwt_list.iter_s (send_dns_request src_port) packets
+      let new_resolver, answers, upstream_queries = Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port query_cstruct in
+      resolver := new_resolver;
+      Dns_resolver.stats !resolver;
+      Log.info (fun f -> f "sending %d further queries" (List.length upstream_queries));
+      Lwt_list.iter_p (send_dns_query src_port) upstream_queries >>= fun () ->
+      Log.info (fun f -> f "%d answers known before sending any queries" (List.length answers));
+      Lwt.return_unit
     in
 
-    (* TODO manually set src_port to something fresh and free *)
-    let src_port = free_port () in
-    send_test_queries src_port >>= fun () ->
-    TIME.sleep_ns 1_000_000_000L
+    let rec try_queries ~retries =
+      if retries <= 0 then Lwt.return_unit
+      else begin
+        let src_port = free_port () in
+        send_test_queries src_port >>= fun () ->
+        Log.info (fun f -> f "waiting 1s...");
+        TIME.sleep_ns 1_000_000_000L >>= fun () ->
+        Dns_resolver.stats !resolver;
+        try_queries ~retries:(retries - 1)
+      end
+    in
+    try_queries ~retries:2 >>= fun () ->
+    Log.info (fun f -> f "all done. Resolver status: ");
+    Dns_resolver.stats !resolver;
+    Lwt.return_unit
 
 end
