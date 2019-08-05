@@ -66,22 +66,35 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       Lwt_list.iter_p (send_dns_query @@ free_port ()) upstream_queries >>= fun () ->
       Log.info (fun f -> f "sitting on %d answers" (List.length answers));
       let records = List.map (fun (_, _, _, record) -> record) answers in
+
       let answers_for_us us records =
         let open Dns.Packet in
-        let replies = List.filter (function reply -> true | _ -> false) records in
+
+        let get_ip_set acc record =
+          let find_me (answer, authority) =
+            Dns.Name_rr_map.find (Domain_name.of_string_exn "robur.io") Dns.Rr_map.A answer
+          in
+
+        match record.data with
+        | `Answer maps -> begin match find_me maps with
+            | Some q -> q :: acc
+            | None -> acc
+          end
+        | _ -> acc
+        in
+        let replies = List.fold_left get_ip_set [] records in
         replies
       in
-      if answers_for_us "robur.io" records <> [] then
-      begin
-        let decode acc packet = match Dns.Packet.decode packet with
-          | Error _ -> acc
-          | Ok decoded -> decoded :: acc
-        in
-        let arecord_map = List.fold_left decode [] records in
-        Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) arecord_map
-      end
-      else
-      Lwt.return_unit in
+
+      let decode acc packet = match Dns.Packet.decode packet with
+        | Error _ -> acc
+        | Ok decoded -> decoded :: acc
+      in
+      let arecord_map = List.fold_left decode [] records in
+
+      if answers_for_us "robur.io" arecord_map <> []
+      then Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) arecord_map
+      else Lwt.return_unit in
 
     let udp_listener = (fun ~src ~dst:_ ~src_port dst_port buf ->
         if is_dns src_port dst_port
