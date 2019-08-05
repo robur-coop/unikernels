@@ -61,11 +61,26 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
         Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port buf in
       resolver := post_request_resolver;
       Dns_resolver.stats !resolver;
+      dns_src_ports := List.filter (fun f -> f <> src_port) !dns_src_ports;
       Log.info (fun f -> f "sending %d upstream queries" @@ List.length upstream_queries);
       Lwt_list.iter_p (send_dns_query @@ free_port ()) upstream_queries >>= fun () ->
       Log.info (fun f -> f "sitting on %d answers" (List.length answers));
-      Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) answers >>= fun () ->
-      dns_src_ports := List.filter (fun f -> f <> src_port) !dns_src_ports;
+      let records = List.map (fun (_, _, _, record) -> record) answers in
+      let answers_for_us us records =
+        let open Dns.Packet in
+        let replies = List.filter (function reply -> true | _ -> false) records in
+        replies
+      in
+      if answers_for_us "robur.io" records <> [] then
+      begin
+        let decode acc packet = match Dns.Packet.decode packet with
+          | Error _ -> acc
+          | Ok decoded -> decoded :: acc
+        in
+        let arecord_map = List.fold_left decode [] records in
+        Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) arecord_map
+      end
+      else
       Lwt.return_unit in
 
     let udp_listener = (fun ~src ~dst:_ ~src_port dst_port buf ->
@@ -120,19 +135,17 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       Lwt.return_unit
     in
 
-    let rec try_queries ~retries =
-      if retries <= 0 then Lwt.return_unit
-      else begin
-        let src_port = free_port () in
-        send_test_queries src_port >>= fun () ->
-        Log.info (fun f -> f "waiting 1s...");
-        (* wait for mvar *)
-        Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun _hello ->
-        Dns_resolver.stats !resolver;
-        try_queries ~retries:(retries - 1)
-      end
-    in
-    try_queries ~retries:2 >>= fun () ->
+    let src_port = free_port () in
+    send_test_queries src_port >>= fun () ->
+    Log.info (fun f -> f "waiting for mvar...");
+    (* wait for mvar *)
+    Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun dns_packets ->
+    Log.info (fun f -> f "Got so many packets %d" (List.length dns_packets));
+    let data = List.map (fun f -> f.Dns.Packet.data) dns_packets in
+    List.iter (fun g ->
+        Log.info (fun f -> f "%a got packet" Dns.Packet.pp_data g)
+      ) data;
+    Dns_resolver.stats !resolver;
     Log.info (fun f -> f "all done. Resolver status: ");
     Dns_resolver.stats !resolver;
     Lwt.return_unit
