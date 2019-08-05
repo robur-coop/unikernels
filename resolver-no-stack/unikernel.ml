@@ -13,6 +13,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
   module T = Tcp.Flow.Make(I)(TIME)(M)(R)
 
   let dns_src_ports : int list ref = ref []
+  module NameMvar = Map.Make(String)
 
   let start _r _pclock mclock _t net db _nc =
     E.connect net >>= fun ethernet ->
@@ -25,6 +26,9 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
     let server =
       Dns_server.Primary.create ~rng:R.generate Dns_resolver_root.reserved in
     let resolver = ref @@ Dns_resolver.create ~mode:(`Recursive) now R.generate server in
+
+    let name_mvar = ref NameMvar.empty in
+    name_mvar := NameMvar.add "robur.io" (Lwt_mvar.create_empty ()) !name_mvar;
 
     let is_dns src_port dst_port =
       List.mem dst_port !dns_src_ports && src_port = 53 in
@@ -60,6 +64,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       Log.info (fun f -> f "sending %d upstream queries" @@ List.length upstream_queries);
       Lwt_list.iter_p (send_dns_query @@ free_port ()) upstream_queries >>= fun () ->
       Log.info (fun f -> f "sitting on %d answers" (List.length answers));
+      Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) answers >>= fun () ->
       dns_src_ports := List.filter (fun f -> f <> src_port) !dns_src_ports;
       Lwt.return_unit in
 
@@ -121,7 +126,8 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
         let src_port = free_port () in
         send_test_queries src_port >>= fun () ->
         Log.info (fun f -> f "waiting 1s...");
-        TIME.sleep_ns 1_000_000_000L >>= fun () ->
+        (* wait for mvar *)
+        Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun _hello ->
         Dns_resolver.stats !resolver;
         try_queries ~retries:(retries - 1)
       end
