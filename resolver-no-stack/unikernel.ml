@@ -160,10 +160,16 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
         | None -> Log.err (fun f -> f "we expected to find %a in the ipset returned for %s, but we didn't :(" Ipaddr.V4.pp expected_ip "robur.io")
         | Some ip -> Log.err (fun f -> f "the IP we expected was in the set, yay! :)")
       ) dns_packets;
+    name_mvar := NameMvar.remove "robur.io" !name_mvar;
     Dns_resolver.stats !resolver;
     Log.info (fun f -> f "all done. Resolver status: ");
     Dns_resolver.stats !resolver;
     Log.info (fun f -> f "port list contents: %a" Fmt.(list ~sep:comma int) !dns_src_ports);
+
+    Log.info (fun f -> f "checking name_mvar:");
+    List.iter (fun (k, _v) ->
+        Log.info (fun f -> f "outstanding resolution attempt: %s" k)
+      ) (NameMvar.bindings !name_mvar);
     Lwt.return_unit
 
 end
