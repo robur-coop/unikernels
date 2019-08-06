@@ -40,12 +40,6 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       else port
     in
 
-    let send_dns_response src_port (_, dst, dst_port, buf) =
-      dns_src_ports := src_port :: !dns_src_ports ;
-      U.write ~src_port ~dst ~dst_port udp buf >>= fun _res ->
-      Lwt.return_unit
-    in
-
     let send_dns_query src_port (_, dst, buf) =
       dns_src_ports := src_port :: !dns_src_ports ;
       U.write ~src_port ~dst ~dst_port:53 udp buf >>= fun _res ->
@@ -61,7 +55,6 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
         Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port buf in
       resolver := post_request_resolver;
       Dns_resolver.stats !resolver;
-      dns_src_ports := List.filter (fun f -> f <> src_port) !dns_src_ports;
       Log.info (fun f -> f "sending %d upstream queries" @@ List.length upstream_queries);
       Lwt_list.iter_p (send_dns_query @@ free_port ()) upstream_queries >>= fun () ->
       Log.info (fun f -> f "sitting on %d answers" (List.length answers));
@@ -91,14 +84,19 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
         | Ok decoded -> decoded :: acc
       in
       let arecord_map = List.fold_left decode [] records in
-
-      if answers_for_us "robur.io" arecord_map <> []
-      then Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) arecord_map
+      let answers = answers_for_us "robur.io" arecord_map in
+      if answers <> []
+      then Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) answers
       else Lwt.return_unit in
 
     let udp_listener = (fun ~src ~dst:_ ~src_port dst_port buf ->
         if is_dns src_port dst_port
-        then handle_dns src src_port buf
+        then begin
+          Log.info (fun f -> f "before removing %d, we have ports %a in the port list" src_port Fmt.(list int) !dns_src_ports);
+          dns_src_ports := List.filter (fun f -> f <> dst_port) !dns_src_ports;
+          Log.info (fun f -> f "after removing %d, we have ports %a in the port list" src_port Fmt.(list int) !dns_src_ports);
+          handle_dns src src_port buf
+        end
         else begin
           Log.debug (fun f -> f "non-dns packet received; dropping it");
           Lwt.return_unit end)
@@ -153,14 +151,19 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
     Log.info (fun f -> f "waiting for mvar...");
     (* wait for mvar *)
     Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun dns_packets ->
-    Log.info (fun f -> f "Got so many packets %d" (List.length dns_packets));
-    let data = List.map (fun f -> f.Dns.Packet.data) dns_packets in
-    List.iter (fun g ->
-        Log.info (fun f -> f "%a got packet" Dns.Packet.pp_data g)
-      ) data;
+    Log.info (fun f -> f "Got so many ipsets %d" (List.length dns_packets));
+    List.iter (fun (_, ipset) ->
+        let iplist = Dns.Rr_map.Ipv4_set.elements ipset in
+        let expected_ip = Ipaddr.V4.of_string_exn "198.167.222.215" in
+        Log.info (fun f -> f "%a in ipset" Fmt.(list Ipaddr.V4.pp) iplist);
+        match Dns.Rr_map.Ipv4_set.find_opt expected_ip ipset with
+        | None -> Log.err (fun f -> f "we expected to find %a in the ipset returned for %s, but we didn't :(" Ipaddr.V4.pp expected_ip "robur.io")
+        | Some ip -> Log.err (fun f -> f "the IP we expected was in the set, yay! :)")
+      ) dns_packets;
     Dns_resolver.stats !resolver;
     Log.info (fun f -> f "all done. Resolver status: ");
     Dns_resolver.stats !resolver;
+    Log.info (fun f -> f "port list contents: %a" Fmt.(list ~sep:comma int) !dns_src_ports);
     Lwt.return_unit
 
 end
