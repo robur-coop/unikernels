@@ -46,23 +46,12 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       Lwt.return_unit
     in
 
-    let handle_dns sender src_port buf =
-      let p_now = Ptime.v (P.now_d_ps ()) in
-      let ts = M.elapsed_ns () in
-      let query_or_reply = true in
-      let proto = `Udp in
-      let post_request_resolver, answers, upstream_queries =
-        Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port buf in
-      resolver := post_request_resolver;
-      Dns_resolver.stats !resolver;
-      Log.info (fun f -> f "sending %d upstream queries" @@ List.length upstream_queries);
-      Lwt_list.iter_p (send_dns_query @@ free_port ()) upstream_queries >>= fun () ->
+    let handle_answers answers =
       Log.info (fun f -> f "sitting on %d answers" (List.length answers));
       let records = List.map (fun (_, _, _, record) -> record) answers in
 
       let answers_for_us us records =
         let open Dns.Packet in
-
         let get_ip_set acc record =
           let find_me (answer, authority) =
             Dns.Name_rr_map.find (Domain_name.of_string_exn "robur.io") Dns.Rr_map.A answer
@@ -78,13 +67,26 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
         let replies = List.fold_left get_ip_set [] records in
         replies
       in
-
       let decode acc packet = match Dns.Packet.decode packet with
         | Error _ -> acc
         | Ok decoded -> decoded :: acc
       in
       let arecord_map = List.fold_left decode [] records in
-      let answers = answers_for_us "robur.io" arecord_map in
+      answers_for_us "robur.io" arecord_map
+    in
+
+    let handle_dns sender src_port buf =
+      let p_now = Ptime.v (P.now_d_ps ()) in
+      let ts = M.elapsed_ns () in
+      let query_or_reply = true in
+      let proto = `Udp in
+      let post_request_resolver, answers', upstream_queries =
+        Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port buf in
+      resolver := post_request_resolver;
+      Dns_resolver.stats !resolver;
+      Log.info (fun f -> f "sending %d upstream queries" @@ List.length upstream_queries);
+      Lwt_list.iter_p (send_dns_query @@ free_port ()) upstream_queries >>= fun () ->
+      let answers = handle_answers answers' in
       if answers <> []
       then Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) answers
       else Lwt.return_unit in
@@ -137,21 +139,26 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       let proto = `Udp in
       let sender = List.hd @@ I.get_ip ipv4 in
 
-      let new_resolver, answers, upstream_queries = Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port query_cstruct in
+      let new_resolver, answers', upstream_queries = Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port query_cstruct in
       resolver := new_resolver;
       Dns_resolver.stats !resolver;
       Log.info (fun f -> f "sending %d further queries" (List.length upstream_queries));
       Lwt_list.iter_p (send_dns_query src_port) upstream_queries >>= fun () ->
-      Log.info (fun f -> f "%d answers known before sending any queries" (List.length answers));
-      Lwt.return_unit
+      Log.info (fun f -> f "%d answers known before sending any queries" (List.length answers'));
+      let answers = handle_answers answers' in
+      if answers <> []
+      then Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) answers
+      else Lwt.return_unit
     in
 
     let src_port = free_port () in
+    let pre_wait = M.elapsed_ns () in
     send_test_queries src_port >>= fun () ->
     Log.info (fun f -> f "waiting for mvar...");
     (* wait for mvar *)
     Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun dns_packets ->
-    Log.info (fun f -> f "Got so many ipsets %d" (List.length dns_packets));
+    let post_wait = M.elapsed_ns () in
+    Log.info (fun f -> f "Got so many ipsets %d in %Ld nanoseconds" (List.length dns_packets) Int64.(sub post_wait pre_wait));
     List.iter (fun (_, ipset) ->
         let iplist = Dns.Rr_map.Ipv4_set.elements ipset in
         let expected_ip = Ipaddr.V4.of_string_exn "198.167.222.215" in
@@ -170,6 +177,20 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
     List.iter (fun (k, _v) ->
         Log.info (fun f -> f "outstanding resolution attempt: %s" k)
       ) (NameMvar.bindings !name_mvar);
+
+    (* let's do it again, and see whether it's any faster - the name should be cached now *)
+
+    name_mvar := NameMvar.add "robur.io" (Lwt_mvar.create_empty ()) !name_mvar;
+    let src_port = free_port () in
+    let pre_wait = M.elapsed_ns () in
+    send_test_queries src_port >>= fun () ->
+    Log.info (fun f -> f "waiting for mvar...");
+    (* wait for mvar *)
+    Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun dns_packets ->
+    let post_wait = M.elapsed_ns () in
+    Log.info (fun f -> f "Got so many ipsets %d in %Ld nanoseconds" (List.length dns_packets) Int64.(sub post_wait pre_wait));
+    name_mvar := NameMvar.remove "robur.io" !name_mvar;
+
     Lwt.return_unit
 
 end
