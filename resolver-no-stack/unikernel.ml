@@ -132,13 +132,15 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
 
     let query_cstruct, _ = Dns_client.make_query `Udp (Domain_name.of_string_exn "robur.io") Dns.Rr_map.A in
 
-    let send_test_queries src_port =
+    let get_cache_response_or_queries name =
+      let src_port = free_port () in
       let p_now = Ptime.v (P.now_d_ps ()) in
       let ts = M.elapsed_ns () in
       let query_or_reply = true in
       let proto = `Udp in
       let sender = List.hd @@ I.get_ip ipv4 in
 
+      name_mvar := NameMvar.add name (Lwt_mvar.create_empty ()) !name_mvar;
       let new_resolver, answers', upstream_queries = Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port query_cstruct in
       resolver := new_resolver;
       Dns_resolver.stats !resolver;
@@ -147,13 +149,20 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       Log.info (fun f -> f "%d answers known before sending any queries" (List.length answers'));
       let answers = handle_answers answers' in
       if answers <> []
-      then Lwt_mvar.put (NameMvar.find "robur.io" !name_mvar) answers
+      then Lwt_mvar.put (NameMvar.find name !name_mvar) answers
       else Lwt.return_unit
     in
+      (* does t.resolver know about [name]?
+       * if not, set up a waiting mvar for [name], and tell the caller what packets to send ([queries] from handle_buf)
+       * then the listener can look up any responses and put them in the corresponding mvar *)
+      (* result type will look like:
+      | Known of Dns.Rr_map.Ipv4set.t
+      | Unknown of Cstruct.t list
+         we should implement this in the test unikernel first, to make sure it's not super broken :)
+         *)
 
-    let src_port = free_port () in
     let pre_wait = M.elapsed_ns () in
-    send_test_queries src_port >>= fun () ->
+    get_cache_response_or_queries "robur.io" >>= fun () ->
     Log.info (fun f -> f "waiting for mvar...");
     (* wait for mvar *)
     Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun dns_packets ->
@@ -180,10 +189,8 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
 
     (* let's do it again, and see whether it's any faster - the name should be cached now *)
 
-    name_mvar := NameMvar.add "robur.io" (Lwt_mvar.create_empty ()) !name_mvar;
-    let src_port = free_port () in
     let pre_wait = M.elapsed_ns () in
-    send_test_queries src_port >>= fun () ->
+    get_cache_response_or_queries "robur.io" >>= fun () ->
     Log.info (fun f -> f "waiting for mvar...");
     (* wait for mvar *)
     Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun dns_packets ->
