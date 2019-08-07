@@ -140,63 +140,73 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (TIME : TIME) (N : NETWORK) (
       let proto = `Udp in
       let sender = List.hd @@ I.get_ip ipv4 in
 
-      name_mvar := NameMvar.add name (Lwt_mvar.create_empty ()) !name_mvar;
       let new_resolver, answers', upstream_queries = Dns_resolver.handle_buf !resolver p_now ts query_or_reply proto sender src_port query_cstruct in
       resolver := new_resolver;
       Dns_resolver.stats !resolver;
-      Log.info (fun f -> f "sending %d further queries" (List.length upstream_queries));
-      Lwt_list.iter_p (send_dns_query src_port) upstream_queries >>= fun () ->
-      Log.info (fun f -> f "%d answers known before sending any queries" (List.length answers'));
       let answers = handle_answers answers' in
       if answers <> []
-      then Lwt_mvar.put (NameMvar.find name !name_mvar) answers
-      else Lwt.return_unit
+      then
+        `Known answers
+      else
+        begin
+          let mvar = Lwt_mvar.create_empty () in
+          name_mvar := NameMvar.add name mvar !name_mvar;
+          `Unknown (mvar, upstream_queries)
+        end
     in
-      (* does t.resolver know about [name]?
-       * if not, set up a waiting mvar for [name], and tell the caller what packets to send ([queries] from handle_buf)
-       * then the listener can look up any responses and put them in the corresponding mvar *)
-      (* result type will look like:
-      | Known of Dns.Rr_map.Ipv4set.t
-      | Unknown of Cstruct.t list
-         we should implement this in the test unikernel first, to make sure it's not super broken :)
-         *)
 
-    let pre_wait = M.elapsed_ns () in
-    get_cache_response_or_queries "robur.io" >>= fun () ->
-    Log.info (fun f -> f "waiting for mvar...");
-    (* wait for mvar *)
-    Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun dns_packets ->
-    let post_wait = M.elapsed_ns () in
-    Log.info (fun f -> f "Got so many ipsets %d in %Ld nanoseconds" (List.length dns_packets) Int64.(sub post_wait pre_wait));
-    List.iter (fun (_, ipset) ->
-        let iplist = Dns.Rr_map.Ipv4_set.elements ipset in
-        let expected_ip = Ipaddr.V4.of_string_exn "198.167.222.215" in
-        Log.info (fun f -> f "%a in ipset" Fmt.(list Ipaddr.V4.pp) iplist);
-        match Dns.Rr_map.Ipv4_set.find_opt expected_ip ipset with
-        | None -> Log.err (fun f -> f "we expected to find %a in the ipset returned for %s, but we didn't :(" Ipaddr.V4.pp expected_ip "robur.io")
-        | Some ip -> Log.err (fun f -> f "the IP we expected was in the set, yay! :)")
-      ) dns_packets;
-    name_mvar := NameMvar.remove "robur.io" !name_mvar;
-    Dns_resolver.stats !resolver;
-    Log.info (fun f -> f "all done. Resolver status: ");
-    Dns_resolver.stats !resolver;
-    Log.info (fun f -> f "port list contents: %a" Fmt.(list ~sep:comma int) !dns_src_ports);
+    let wait_and_clean_state mvar name =
+      Lwt_mvar.take mvar >>= fun answers ->
+      name_mvar := NameMvar.remove name !name_mvar;
+      Lwt.return answers
+    in
 
-    Log.info (fun f -> f "checking name_mvar:");
-    List.iter (fun (k, _v) ->
-        Log.info (fun f -> f "outstanding resolution attempt: %s" k)
-      ) (NameMvar.bindings !name_mvar);
+    let lookup_and_check name ip =
+      let ip_in_sets ip answers =
+        List.iter (fun (_, ipset) ->
+          let iplist = Dns.Rr_map.Ipv4_set.elements ipset in
+          Log.info (fun f -> f "%a in ipset" Fmt.(list Ipaddr.V4.pp) iplist);
+          match Dns.Rr_map.Ipv4_set.find_opt ip ipset with
+          | None -> Log.err (fun f -> f "we expected to find %a in the ipset returned for %s, but we didn't :(" Ipaddr.V4.pp ip "robur.io")
+          | Some ip -> Log.err (fun f -> f "the IP we expected was in the set, yay! :)")
+          ) answers;
+        Lwt.return_unit
+      in
+      match get_cache_response_or_queries "robur.io" with
+      | `Known answers -> ip_in_sets ip answers
+      | `Unknown (mvar, queries) ->
+        begin
+        Lwt_list.iter_p (send_dns_query @@ free_port ()) queries >>= fun () ->
+        Log.info (fun f -> f "waiting for mvar...");
+        wait_and_clean_state mvar name >>= fun answers ->
+        ip_in_sets ip answers
+        end
+    in
 
-    (* let's do it again, and see whether it's any faster - the name should be cached now *)
+    let timed_lookup_and_check name ip =
+      let pre_wait = M.elapsed_ns () in
+      lookup_and_check name ip >>= fun () ->
+      let post_wait = M.elapsed_ns () in
+      Log.info (fun f -> f "Got answers in %Ld nanoseconds" Int64.(sub post_wait pre_wait));
+      Lwt.return_unit
+    in
 
-    let pre_wait = M.elapsed_ns () in
-    get_cache_response_or_queries "robur.io" >>= fun () ->
-    Log.info (fun f -> f "waiting for mvar...");
-    (* wait for mvar *)
-    Lwt_mvar.take (NameMvar.find "robur.io" !name_mvar) >>= fun dns_packets ->
-    let post_wait = M.elapsed_ns () in
-    Log.info (fun f -> f "Got so many ipsets %d in %Ld nanoseconds" (List.length dns_packets) Int64.(sub post_wait pre_wait));
-    name_mvar := NameMvar.remove "robur.io" !name_mvar;
+    (* make sure there are no outstanding requests *)
+    let show_state () =
+      Log.info (fun f -> f "checking name_mvar:");
+      List.iter (fun (k, _v) ->
+          Log.info (fun f -> f "outstanding resolution attempt: %s" k)
+        ) (NameMvar.bindings !name_mvar);
+      Log.info (fun f -> f "port list contents: %a" Fmt.(list ~sep:comma int) !dns_src_ports)
+    in
+
+    let name = "robur.io" in
+    let ip = Ipaddr.V4.of_string_exn "198.167.222.215" in
+
+    timed_lookup_and_check name ip >>= fun () ->
+    show_state ();
+    (* do it again: is it any faster? name should be cached *)
+    timed_lookup_and_check name ip >>= fun () ->
 
     Lwt.return_unit
 
