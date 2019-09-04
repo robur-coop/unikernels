@@ -5,7 +5,7 @@ open Mirage_types_lwt
 open Lwt.Infix
 
 module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S: Mirage_stack_lwt.V4) = struct
-  module D = Dns_mirage_certify.Make(R)(P)(T)(S)
+  module D = Dns_certify_mirage.Make(R)(P)(T)(S)
   module TLS = Tls_mirage.Make(S.TCPV4)
 
   let rec handle flow =
@@ -47,17 +47,19 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S: Mirage_stack_l
   (* TODO: move to TLS *)
   let log_certchain (chain, priv) =
     let certs =
-      Cstruct.to_string (X509.Encoding.Pem.Certificate.to_pem_cstruct chain)
+      String.concat "\n" (List.map (fun c ->
+          Cstruct.to_string (X509.Certificate.encode_pem c))
+          chain)
     and key =
-      Cstruct.to_string (X509.Encoding.Pem.Private_key.to_pem_cstruct1 (`RSA priv))
+      Cstruct.to_string (X509.Private_key.encode_pem (`RSA priv))
     in
     Logs.app (fun m -> m "certificate chain:@.%s" certs);
     Logs.app (fun m -> m "private key:@.%s" key)
 
-  let start _random pclock _mclock _ stack _ =
-    let hostname = Domain_name.of_string_exn (Key_gen.hostname ()) in
+  let start _random _pclock _mclock _ stack _ =
+    let hostname = Domain_name.(host_exn (of_string_exn (Key_gen.hostname ()))) in
     let additional_hostnames =
-      List.map Domain_name.of_string_exn
+      List.map (fun n -> Domain_name.(host_exn (of_string_exn n)))
         (Astring.String.cuts ~empty:false ~sep:"," (Key_gen.additional ()))
     in
     let ca = if Key_gen.production () then `Production else `Staging in

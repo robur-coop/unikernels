@@ -40,17 +40,12 @@ let keys = Key.[
   ]
 
 let packages =
-  let pin = "git+https://github.com/roburio/udns.git" in
   [
     package "x509" ;
     package "duration" ;
     package "randomconv" ;
     package "logs" ;
-    package ~pin "dns";
-    package ~pin "dns-tsig";
-    package ~pin "dns-certify";
-    package ~pin "dns-mirage";
-    package ~pin "dns-mirage-certify";
+    package ~sublibs:[ "mirage" ] "dns-certify";
     package ~sublibs:[ "mirage" ] "tls" ;
   ]
 

@@ -34,22 +34,17 @@ let keys = Key.[
   ]
 
 let packages =
-  let pin = "git+https://github.com/roburio/udns.git" in
   [
     package "x509" ;
     package "duration" ;
     package "logs" ;
     package "cohttp-mirage" ;
-    package ~pin:"git+https://github.com/hannesm/ocaml-letsencrypt.git#udns" "letsencrypt" ;
-    package ~pin:"git+https://github.com/hannesm/ocaml-conduit.git#udns" "mirage-conduit" ;
-    package ~pin "dns";
-    package ~pin "dns-client";
-    package ~pin "dns-mirage-client";
-    package ~pin "dns-tsig";
-    package ~pin "dns-mirage";
-    package ~pin "dns-mirage-server";
-    package ~pin "dns-server";
+    package ~pin:"git+https://github.com/mmaker/ocaml-letsencrypt.git" "letsencrypt" ;
+    package "conduit-mirage" ;
+    package "dns-tsig";
+    package ~sublibs:[ "mirage" ] "dns-server";
     package "randomconv" ;
+    package ~min:"0.3.0" "domain-name"
 ]
 
 let client =

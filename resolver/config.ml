@@ -4,18 +4,10 @@ open Mirage
 
 let dns_handler =
   let packages =
-    let pin = "git+https://github.com/roburio/udns.git" in
     [
       package "logs" ;
-      package ~pin "dns";
-      package ~pin "dns-mirage";
-      package ~pin "dns-server";
-      package ~pin "dns-resolver";
-      package ~pin "dns-mirage-resolver";
-      package "randomconv" ;
-      package "lru" ;
-      package "rresult" ;
-      package "duration" ;
+      package "dns-server";
+      package ~sublibs:[ "mirage" ] "dns-resolver";
     ]
   in
   foreign

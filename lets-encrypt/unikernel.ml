@@ -10,7 +10,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
   module Acme = Letsencrypt.Client.Make(Cohttp_mirage.Client)
 
   module D = Dns_mirage.Make(S)
-  module DS = Dns_mirage_server.Make(P)(M)(T)(S)
+  module DS = Dns_server_mirage.Make(P)(M)(T)(S)
 
   let gen_rsa seed =
     let seed = Cstruct.of_string seed in
@@ -46,17 +46,17 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
   let valid_and_matches_csr csr cert =
     (* parse csr, parse cert: match public keys, match validity of cert *)
     match
-      X509.Encoding.parse_signing_request csr.Tlsa.data,
-      X509.Encoding.parse cert.Tlsa.data
+      X509.Signing_request.decode_der csr.Tlsa.data,
+      X509.Certificate.decode_der cert.Tlsa.data
     with
-    | Some csr, Some cert ->
+    | Ok csr, Ok cert ->
       let now_plus1 =
         let (days, ps) = P.now_d_ps () in
         Ptime.v (succ days, ps)
       in
-      let _, until = X509.validity cert in
-      let csr_key = X509.key_id (X509.CA.info csr).X509.CA.public_key
-      and cert_key = X509.key_id (X509.public_key cert)
+      let _, until = X509.Certificate.validity cert in
+      let csr_key = X509.Public_key.id X509.Signing_request.((info csr).public_key)
+      and cert_key = X509.Public_key.id (X509.Certificate.public_key cert)
       in
       let valid = Ptime.is_later until ~than:now_plus1
       and key_eq = Cstruct.equal csr_key cert_key
@@ -85,7 +85,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             let up =
               (* TODO domain_name API *)
               if Astring.String.is_infix ~affix:"update" (Domain_name.to_string key_name) then
-                let zone = Domain_name.drop_labels_exn ~amount:2 key_name in
+                let zone = Domain_name.drop_label_exn ~amount:2 key_name in
                 Logs.app (fun m -> m "inserting zone %a update key" Domain_name.pp zone) ;
                 Domain_name.Map.add zone (key_name, dnskey) up
               else
@@ -175,7 +175,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
               remove_flight tlsa_name;
               Lwt.return_unit
             | Ok cert ->
-              let certificate = X509.Encoding.cs_of_cert cert in
+              let certificate = X509.Certificate.encode_der cert in
               Logs.info (fun m -> m "certificate received for %a" Domain_name.pp tlsa_name);
               match Dns_trie.lookup tlsa_name Rr_map.Tlsa (Dns_server.Secondary.data server) with
               | Error e ->
@@ -271,25 +271,24 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                -> lookup zone in update_keys, rinse repeat with zone dropping labels *)
         let name_of_interest name =
           (* TODO domain_name API *)
-          let arr = Domain_name.to_array name in
-          let len = Array.length arr in
+          let len = Domain_name.count_labels name in
           if len < 2 then
             false
           else
-            let first = Array.get arr (pred len)
-            and second = Array.get arr (len - 2)
+            let first = Domain_name.get_label_exn name 0
+            and second = Domain_name.get_label_exn name 1
             in
-            Domain_name.compare_sub first "_letsencrypt" = 0 && Domain_name.compare_sub second "_tcp" = 0
+            Domain_name.(equal_label first "_letsencrypt" && equal_label second "_tcp")
         and find_update_key name =
           (* not clear whether this is worth it - the recursion below would as well drop them *)
-          let base = Domain_name.drop_labels ~amount:2 name in
+          let base = Domain_name.drop_label ~amount:2 name in
           let rec find_key = function
             | Error (`Msg msg) ->
               Logs.err (fun m -> m "find_key for %a failed with %s" Domain_name.pp name msg);
               None
             | Ok name ->
               match Domain_name.Map.find name update_keys with
-              | None -> find_key (Domain_name.drop_labels name)
+              | None -> find_key (Domain_name.drop_label name)
               | Some key -> Some key
           in
           find_key base
@@ -338,22 +337,22 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                      Logs.err (fun m -> m "error %a while looking up zone for %a"
                                   Dns_trie.pp_e e Domain_name.pp name)
                    | Some (keyname, key), Ok (zone, _) ->
-                     match X509.Encoding.parse_signing_request csr.Tlsa.data with
-                     | None -> Logs.err (fun m -> m "couldn't parse signing request")
-                     | Some csr ->
-                       match List.find (function `CN _ -> true | _ -> false) (X509.CA.info csr).X509.CA.subject with
-                       | exception Not_found -> Logs.err (fun m -> m "cannot find name of signing request")
-                       | `CN nam ->
+                     match X509.Signing_request.decode_der csr.Tlsa.data, Domain_name.host zone with
+                     | Error (`Parse str), _ -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
+                     | _, Error (`Msg msg) -> Logs.err (fun m -> m "zone %a not a hostname: %s" Domain_name.pp zone msg)
+                     | Ok csr, Ok zone ->
+                       match X509.(Distinguished_name.(find CN Signing_request.((info csr).subject))) with
+                       | None -> Logs.err (fun m -> m "cannot find name of signing request")
+                       | Some nam ->
                          begin match Domain_name.of_string nam with
                            | Error (`Msg msg) -> Logs.err (fun m -> m "error %s while creating domain name of %s" msg nam)
                            | Ok csr_name ->
-                             if not (Domain_name.sub ~domain:csr_name ~subdomain:name) then
+                             if not (Domain_name.is_subdomain ~domain:csr_name ~subdomain:name) then
                                Logs.err (fun m -> m "csr cn %a isn't a superdomain of DNS %a"
                                             Domain_name.pp csr_name Domain_name.pp name)
                              else
                                request_certificate t le ctx ~zone ~tlsa_name:name ~keyname key csr
                          end
-                       | _ -> Logs.err (fun m -> m "cannot find common name of signing request")
                  else
                    Logs.warn (fun m -> m "not interesting (certs) %a" Domain_name.pp name)
                end

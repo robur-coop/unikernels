@@ -8,18 +8,10 @@ let resolver =
 
 let dns_handler =
   let packages =
-    let pin = "git+https://github.com/roburio/udns.git" in
     [
       package "logs" ;
-      package ~pin "dns";
-      package ~pin "dns-mirage";
-      package ~pin "dns-resolver";
-      package ~pin "dns-server";
-      package ~pin "dns-mirage-resolver";
-      package "randomconv" ;
-      package "lru" ;
-      package "rresult" ;
-      package "duration" ;
+      package ~sublibs:["mirage"] "dns-resolver";
+      package "dns-server";
     ]
   in
   foreign

@@ -6,7 +6,7 @@ open Mirage_types_lwt
 
 module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (KV : KV_RO) = struct
 
-  module D = Dns_mirage_server.Make(P)(M)(T)(S)
+  module D = Dns_server_mirage.Make(P)(M)(T)(S)
 
   let start _rng pclock mclock _ s kv _ =
     KV.get kv (Mirage_kv.Key.v "zone") >>= function

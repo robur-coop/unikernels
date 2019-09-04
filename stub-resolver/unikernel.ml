@@ -5,7 +5,7 @@ open Lwt.Infix
 open Mirage_types_lwt
 
 module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = struct
-  module D = Dns_mirage_resolver.Make(R)(P)(M)(T)(S)
+  module D = Dns_resolver_mirage.Make(R)(P)(M)(T)(S)
 
   let start _r pclock mclock _ s _ =
     let trie =
@@ -14,7 +14,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
       in
       let trie =
         Dns_trie.insert Domain_name.root
-          Dns.Rr_map.Ns (300l, Domain_name.Set.singleton name)
+          Dns.Rr_map.Ns (300l, Domain_name.(Host_set.singleton (host_exn name)))
           Dns_resolver_root.reserved
       in
       Dns_trie.insert name Dns.Rr_map.A
