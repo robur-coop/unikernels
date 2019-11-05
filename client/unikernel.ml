@@ -2,11 +2,11 @@
 
 open Lwt.Infix
 
-module Main (R : Mirage_random.C) (S : Mirage_stack_lwt.V4) = struct
+module Main (R : Mirage_random.C) (M : Mirage_clock.MCLOCK) (S : Mirage_stack_lwt.V4) = struct
 
-  module DNS = Dns_client_mirage.Make(R)(S)
+  module DNS = Dns_client_mirage.Make(R)(M)(S)
 
-  let start _ s _ =
+  let start _ _ s _ =
     let t = DNS.create s in
     let host = Domain_name.(host_exn (of_string_exn (Key_gen.hostname ()))) in
     DNS.gethostbyname t host >|= function

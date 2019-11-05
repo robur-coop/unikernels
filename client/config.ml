@@ -10,14 +10,14 @@ let dns_handler =
   let packages =
     [
       package "logs" ;
-      package ~sublibs:[ "mirage" ] "dns-client";
+      package ~min:"4.1.0" ~sublibs:[ "mirage" ] "dns-client";
     ]
   in
   foreign
     ~keys:[Key.abstract hostname]
     ~deps:[abstract nocrypto]
     ~packages
-    "Unikernel.Main" (random @-> stackv4 @-> job)
+    "Unikernel.Main" (random @-> mclock @-> stackv4 @-> job)
 
 let () =
-  register "client" [dns_handler $ default_random $ generic_stackv4 default_network ]
+  register "client" [dns_handler $ default_random $ default_monotonic_clock $ generic_stackv4 default_network ]

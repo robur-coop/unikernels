@@ -1,15 +1,19 @@
 language: c
-install: wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-opam.sh
-script: bash -ex .travis-opam.sh
-sudo: required
-dist: xenial
+install: wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-docker.sh
+script: bash -ex .travis-docker.sh
+services:
+  - docker
+sudo: false
 env:
   global:
     - PACKAGE="unikernels"
+    - EXTRA_REMOTES="https://github.com/hannesm/mirage-dev.git#easy"
     - TESTS=false
+    - DISTRO=alpine
   matrix:
-    - OCAML_VERSION=4.07 POST_INSTALL_HOOK="make ci MODE=unix"
-    - OCAML_VERSION=4.07 POST_INSTALL_HOOK="make ci MODE=hvt"
-    - OCAML_VERSION=4.07 POST_INSTALL_HOOK="make ci MODE=xen"
+    - OCAML_VERSION=4.09 POST_INSTALL_HOOK="make ci MODE=unix"
+    - OCAML_VERSION=4.09 POST_INSTALL_HOOK="make ci MODE=spt"
+    - OCAML_VERSION=4.08 POST_INSTALL_HOOK="make ci MODE=hvt"
+    - OCAML_VERSION=4.08 POST_INSTALL_HOOK="make ci MODE=xen"
     - OCAML_VERSION=4.07 POST_INSTALL_HOOK="make ci MODE=virtio"
     - OCAML_VERSION=4.07 POST_INSTALL_HOOK="make ci MODE=qubes"

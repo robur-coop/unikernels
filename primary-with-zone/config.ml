@@ -11,7 +11,7 @@ let dns_handler =
       package ~sublibs:[ "zone" ; "mirage" ] "dns-server";
       package "dns-tsig";
       package "nocrypto";
-      package ~min:"2.0.0" "mirage-kv-lwt";
+      package ~min:"2.0.0" "mirage-kv";
     ]
   in
   foreign

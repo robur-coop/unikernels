@@ -35,11 +35,11 @@ let keys = Key.[
 
 let packages =
   [
-    package "x509" ;
+    package ~min:"0.8.1" "x509" ;
     package "duration" ;
     package "logs" ;
     package "cohttp-mirage" ;
-    package ~pin:"git+https://github.com/mmaker/ocaml-letsencrypt.git" "letsencrypt" ;
+    package "letsencrypt" ;
     package "conduit-mirage" ;
     package "dns-tsig";
     package ~sublibs:[ "mirage" ] "dns-server";

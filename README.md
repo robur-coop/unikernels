@@ -73,8 +73,6 @@ put into DNS, and DNS is polled until a certificate occurs.
 
 ## Let's encrypt hidden secondary
 
-This unikernels requires lets-encrypt to be installed as well (`opam pin add letsencrypt https://github.com/hannesm/ocaml-letsencrypt.git#nsupdate`).
-
 The [`lets-encrypt`](lets-encrypt/) subdirectory contains an unikernel which
 waits for zone transfers, and if a certificate signing request (`TLSA` record,
 type private (255)) is received, a certificate is provisioned by the let's

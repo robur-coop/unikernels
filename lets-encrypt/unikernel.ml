@@ -341,7 +341,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                      | Error (`Parse str), _ -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
                      | _, Error (`Msg msg) -> Logs.err (fun m -> m "zone %a not a hostname: %s" Domain_name.pp zone msg)
                      | Ok csr, Ok zone ->
-                       match X509.(Distinguished_name.(find CN Signing_request.((info csr).subject))) with
+                       match X509.(Distinguished_name.common_name Signing_request.((info csr).subject)) with
                        | None -> Logs.err (fun m -> m "cannot find name of signing request")
                        | Some nam ->
                          begin match Domain_name.of_string nam with
