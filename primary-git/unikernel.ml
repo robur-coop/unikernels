@@ -2,9 +2,7 @@
 
 open Lwt.Infix
 
-open Mirage_types_lwt
-
-module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S) = struct
+module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S) = struct
 
   module Store = Irmin_mirage_git.Mem.KV(Irmin.Contents.String)
   module Sync = Irmin.Sync(Store)
@@ -134,7 +132,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
     let zones =
       Dns_trie.fold Dns.Rr_map.Soa data
         (fun dname soa acc ->
-           match Dns_trie.lookup dname Soa old with
+           match Dns_trie.lookup dname Dns.Rr_map.Soa old with
            | Ok old when Dns.Soa.newer ~old soa -> dname :: acc
            | Ok _ -> acc
            | Error _ -> dname :: acc)
@@ -159,7 +157,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
       Lwt.return_unit
     | Ok (trie, keys) ->
       let on_update ~old t = store_zones ~old t store upstream in
-      let on_notify n t =
+      let on_notify n _t =
         match n with
         | `Notify soa ->
           Logs.err (fun m -> m "ignoring normal notify %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa);
@@ -167,8 +165,8 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
         | `Signed_notify soa ->
           Logs.info (fun m -> m "got notified, checking out %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa);
           load_git store upstream >|= function
-          | Error msg ->
-            Logs.err (fun m -> m "error while loading git while in notify, continuing with old data");
+          | Error (`Msg msg) ->
+            Logs.err (fun m -> m "error %s while loading git while in notify, continuing with old data" msg);
             None
           | Ok trie ->
             Logs.info (fun m -> m "loaded a new trie from git!");
