@@ -26,6 +26,16 @@ $ opam install mirage
 $ cd primary-git && mirage configure -t hvt --prng fortuna && make depend && make
 ```
 
+This branch depends on unreleased software, you first need to add an opam
+repository overlay (best done on a custom switch):
+
+```bash
+$ opam switch create mirage-dns 4.09.0
+$ opam repo add git+https://github.com/roburio/git-ssh-dns-mirage3-repo.git
+$ opam install mirage
+$ cd primary-git && mirage configure -t hvt --prng fortuna && make depend && make
+```
+
 In any of the subdirectories, run `mirage configure` (see `mirage help
 configure` for options), followed by `make depend` and `make` (read more
 information [Hello MirageOS world](https://mirage.io/wiki/hello-world)).
