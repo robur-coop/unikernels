@@ -18,6 +18,36 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
         (Key_gen.seed () ^ ":" ^ Key_gen.authenticator ())
     | _ -> Cohttp.Header.init ()
 
+  let counters =
+    Monitoring_experiments.counter_metrics ~f:(fun x -> x) "primary-dns"
+
+  let inc c = Metrics.add counters (fun x -> x) (fun d -> d c)
+
+  let set_zone_counter =
+    let s = ref (0, 0, 0, 0) in
+    let open Metrics in
+    let doc = "zone statistics" in
+    let data () =
+      let pull, push, active, key = !s in
+      Data.v [
+        int "zones pulled" pull ;
+        int "zones pushed" push ;
+        int "active zones" active ;
+        int "active nsupdate keys" key ;
+      ] in
+    let src = Src.v ~doc ~tags:Tags.[] ~data "dns-zones" in
+    (fun action n ->
+       let pull, push, active, key = !s in
+       let s' =
+         match action with
+         | `Pull -> n, push, active, key
+         | `Push -> pull, n, active, key
+         | `Active -> pull, push, n, key
+         | `Key -> pull, push, active, n
+       in
+       s := s';
+       add src (fun x -> x) (fun d -> d ()))
+
   let connect_store resolver conduit =
     let config = Irmin_mem.config () in
     Store.Repo.v config >>= Store.master >|= fun repo ->
@@ -25,6 +55,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
     repo, Store.remote ~headers ~conduit ~resolver (Key_gen.remote ())
 
   let pull_store repo upstream =
+    inc "pull";
     Logs.info (fun m -> m "pulling from remote!");
     Sync.pull repo upstream `Set >|= function
     | Ok `Empty -> Logs.warn (fun m -> m "pulled empty repository")
@@ -50,9 +81,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
     load_zones store upstream >|= function
     | Error (ctx, e) -> Error (`Msg ("while loading zones from git: " ^ ctx ^ " " ^ e))
     | Ok bindings ->
-      Logs.info (fun m -> m "found %d bindings: %a" (List.length bindings)
-                    Fmt.(list ~sep:(unit ",@ ") (pair ~sep:(unit ": ") Domain_name.pp int))
-                    (List.map (fun (k, v) -> k, String.length v) bindings)) ;
+      set_zone_counter `Pull (List.length bindings);
       let open Rresult.R.Infix in
       (* split into keys and zones *)
       let keys, data =
@@ -65,7 +94,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
       in
       let zones = Domain_name.Set.of_list (fst (List.split data)) in
       let parse_and_maybe_add trie zone data =
-        Logs.info (fun m -> m "parsing %a: %s" Domain_name.pp zone data);
+        Logs.debug (fun m -> m "parsing %a: %s" Domain_name.pp zone data);
         Dns_zone.parse data >>= fun rrs ->
         (* we take all resource records within the zone *)
         let in_zone subdomain = Domain_name.is_subdomain ~domain:zone ~subdomain in
@@ -138,10 +167,16 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
         Logs.info (fun m -> m "loaded zone@.%s" zone_data);
         trie'
       in
-      List.fold_left (fun acc (zone, data) ->
-          acc >>= fun trie ->
-          parse_and_maybe_add trie zone data)
-        (Ok Dns_trie.empty) data >>= fun data_trie ->
+      let data_trie, zone_count =
+        List.fold_left (fun (trie, count) (zone, data) ->
+            match parse_and_maybe_add trie zone data with
+            | Ok trie' -> trie', succ count
+            | Error (`Msg msg) ->
+              Logs.warn (fun m -> m "ignoring malformed zone %a: %s" Domain_name.pp zone msg);
+              trie, count)
+          (Dns_trie.empty, 0) data
+      in
+      set_zone_counter `Active zone_count;
       let parse_keys zone keys =
         Dns_zone.parse keys >>= fun rrs ->
         let tst subdomain = Domain_name.is_subdomain ~domain:zone ~subdomain in
@@ -168,12 +203,17 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
           in
           Ok keys
       in
-      List.fold_left (fun acc (zone, keys) ->
-          acc >>= fun acc ->
-          parse_keys zone keys >>| fun ks ->
-          (ks @ acc))
-        (Ok []) keys >>| fun keys ->
-      (data_trie, keys)
+      let keys =
+        List.fold_left (fun acc (zone, keys) ->
+            match parse_keys zone keys with
+            | Ok keys -> keys @ acc
+            | Error (`Msg msg) ->
+              Logs.warn (fun m -> m "ignoring key %a %s" Domain_name.pp zone msg);
+              acc)
+          [] keys
+      in
+      set_zone_counter `Key (List.length keys);
+      Ok (data_trie, keys)
 
   let store_zone key ip t store zone =
     match Dns_server.text zone (Dns_server.Primary.data t) with
@@ -207,8 +247,12 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
         []
     in
     Lwt_list.iter_s (store_zone key ip t store) zones >>= fun () ->
+    set_zone_counter `Push (List.length zones);
+    set_zone_counter `Active (List.length zones);
     (* TODO removal of a zone should lead to dropping this zone from git! *)
     Logs.info (fun m -> m "pushing to remote!");
+    inc "push";
+    (* TODO merge conflicts!? *)
     Sync.push store upstream  >|= function
     | Ok `Empty -> Logs.warn (fun m -> m "pushed empty zonefiles")
     | Ok (`Head _ as s) -> Logs.info (fun m -> m "pushed zonefile commit %a" Sync.pp_status s)
@@ -219,11 +263,10 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
   let start _rng _pclock _mclock _time s resolver conduit =
     CON.with_ssh conduit (module M) >>= fun conduit ->
     connect_store resolver conduit >>= fun (store, upstream) ->
-    Logs.info (fun m -> m "i have now master!");
     load_git None store upstream >>= function
     | Error (`Msg msg) ->
       Logs.err (fun m -> m "error during loading git %s" msg);
-      Lwt.return_unit
+      Lwt.fail_with "git failed"
     | Ok (trie, keys) ->
       let on_update ~old ~authenticated_key ~update_source t =
         store_zones ~old authenticated_key update_source t store upstream
