@@ -16,7 +16,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
     Logs.info (fun m -> m "pulling from remote!");
     Sync.pull repo upstream `Set >|= function
     | Ok `Empty -> Logs.warn (fun m -> m "pulled empty repository")
-    | Ok (`Head _) -> Logs.info (fun m -> m "ok, pulled some commit!")
+    | Ok (`Head _ as s) -> Logs.info (fun m -> m "ok, pulled %a!" Sync.pp_status s)
     | Error (`Msg e) -> Logs.warn (fun m -> m "pull error %s" e)
     | Error (`Conflict msg) -> Logs.warn (fun m -> m "pull conflict %s" msg)
 
@@ -142,8 +142,8 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
     (* TODO removal of a zone should lead to dropping this zone from git! *)
     Logs.info (fun m -> m "pushing to remote!");
     Sync.push store upstream  >|= function
-    | Ok `Empty -> Logs.app (fun m -> m "pushed empty zonefiles")
-    | Ok (`Head _) -> Logs.app (fun m -> m "pushed zonefile commit")
+    | Ok `Empty -> Logs.warn (fun m -> m "pushed empty zonefiles")
+    | Ok (`Head _ as s) -> Logs.info (fun m -> m "pushed zonefile commit %a" Sync.pp_status s)
     | Error pe -> Logs.err (fun m -> m "push error %a" Sync.pp_push_error pe)
 
   module D = Dns_server_mirage.Make(P)(M)(T)(S)
