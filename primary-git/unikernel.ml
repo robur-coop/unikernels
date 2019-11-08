@@ -4,7 +4,7 @@
 
 open Lwt.Infix
 
-module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S) = struct
+module Main (C : Mirage_console.S) (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S) (Management : Mirage_stack.V4) = struct
 
   module Store = Irmin_mirage_git.Mem.KV(Irmin.Contents.String)
   module Sync = Irmin.Sync(Store)
@@ -259,8 +259,24 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
     | Error pe -> Logs.err (fun m -> m "push error %a" Sync.pp_push_error pe)
 
   module D = Dns_server_mirage.Make(P)(M)(T)(S)
+  module Monitoring = Monitoring_experiments.Make(T)(Management)
+  module Syslog = Logs_syslog_mirage.Udp(C)(P)(Management)
 
-  let start _rng _pclock _mclock _time s resolver conduit =
+  let start c _rng _pclock _mclock _time s resolver conduit management info =
+    let hostname = Key_gen.name ()
+    and syslog = Key_gen.syslog ()
+    and monitor = Key_gen.monitor ()
+    in
+    if Ipaddr.V4.compare syslog Ipaddr.V4.unspecified = 0 then
+      Logs.warn (fun m -> m "no syslog specified, dumping on stdout")
+    else
+      Logs.set_reporter (Syslog.create c management syslog ~hostname ());
+    if Ipaddr.V4.compare monitor Ipaddr.V4.unspecified = 0 then
+      Logs.warn (fun m -> m "no monitor specified, not outputting statistics")
+    else
+      Monitoring.create ~hostname monitor management;
+    List.iter (fun (p, v) -> Logs.app (fun m -> m "used package: %s %s" p v))
+      info.Mirage_info.packages;
     CON.with_ssh conduit (module M) >>= fun conduit ->
     connect_store resolver conduit >>= fun (store, upstream) ->
     load_git None store upstream >>= function
