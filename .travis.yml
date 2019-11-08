@@ -9,6 +9,7 @@ env:
     - PACKAGE="unikernels"
     - TESTS=false
     - DISTRO=alpine
+    - EXTRA_REMOTES="git+https://github.com/roburio/git-ssh-dns-mirage3-repo.git"
   matrix:
     - OCAML_VERSION=4.10 POST_INSTALL_HOOK="make ci MODE=unix"
     - OCAML_VERSION=4.10 POST_INSTALL_HOOK="make ci MODE=spt"
