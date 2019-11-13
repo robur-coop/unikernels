@@ -26,10 +26,23 @@ let email =
   let doc = Key.Arg.info ~doc:"Contact eMail address for let's encrypt" ["email"] in
   Key.(create "email" Arg.(opt (some string) None doc))
 
-let keys = Key.[
-    abstract dns_key ; abstract dns_server ; abstract port ;
-    abstract account_key_seed ; abstract production ; abstract email
-  ]
+let monitor =
+  let doc = Key.Arg.info ~doc:"monitor host IP" ["monitor"] in
+  Key.(create "monitor" Arg.(opt ipv4_address Ipaddr.V4.unspecified doc))
+
+let syslog =
+  let doc = Key.Arg.info ~doc:"syslog host IP" ["syslog"] in
+  Key.(create "syslog" Arg.(opt ipv4_address Ipaddr.V4.unspecified doc))
+
+let name =
+  let doc = Key.Arg.info ~doc:"Name of the unikernel" ["name"] in
+  Key.(create "name" Arg.(opt string "sn.nqsb.io" doc))
+
+let keys = [
+  Key.abstract dns_key ; Key.abstract dns_server ; Key.abstract port ;
+  Key.abstract account_key_seed ; Key.abstract production ; Key.abstract email ;
+  Key.abstract name ; Key.abstract syslog ; Key.abstract monitor ;
+]
 
 let packages =
   [
@@ -43,16 +56,19 @@ let packages =
     package ~min:"4.4.0" "dns-certify";
     package ~min:"4.4.0" ~sublibs:[ "mirage" ] "dns-server";
     package "randomconv" ;
-    package ~min:"0.3.0" "domain-name"
+    package ~min:"0.3.0" "domain-name" ;
+    package ~sublibs:["mirage"] "logs-syslog";
+    package "monitoring-experiments";
 ]
 
 let client =
-  foreign ~keys ~packages "Unikernel.Client" @@
-  random @-> pclock @-> mclock @-> time @-> stackv4 @-> resolver @-> conduit @-> job
+  foreign ~deps:[abstract app_info] ~keys ~packages "Unikernel.Client" @@
+  console @-> random @-> pclock @-> mclock @-> time @-> stackv4 @-> resolver @-> conduit @-> job
+
+let management_stack = generic_stackv4 ~group:"management" (netif ~group:"management" "management")
 
 let () =
-  let net = generic_stackv4 default_network in
-  let res_dns = resolver_dns net in
-  let conduit = conduit_direct net in
+  let res_dns = resolver_dns management_stack in
+  let conduit = conduit_direct management_stack in
   register "letsencrypt"
-    [ client $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ net $ res_dns $ conduit ]
+    [ client $ default_console $ default_random $ default_posix_clock $ default_monotonic_clock $ default_time $ management_stack $ res_dns $ conduit ]

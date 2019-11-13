@@ -4,11 +4,18 @@ open Lwt.Infix
 
 open Dns
 
-module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S)= struct
+module Client (C : Mirage_console.S) (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S)= struct
   module Acme = Letsencrypt.Client.Make(Cohttp_mirage.Client)
 
   module D = Dns_mirage.Make(S)
   module DS = Dns_server_mirage.Make(P)(M)(T)(S)
+
+  let inc =
+    let counters =
+      Monitoring_experiments.counter_metrics ~f:(fun x -> x) "letsencrypt"
+    in
+    fun name ->
+      Metrics.add counters (fun x -> x) (fun d -> d name)
 
   let gen_rsa seed =
     let seed = Cstruct.of_string seed in
@@ -111,7 +118,24 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                      Domain_name.pp name);
         None
 
-  let start _random _pclock _mclock _ stack res ctx =
+  module Monitoring = Monitoring_experiments.Make(T)(S)
+  module Syslog = Logs_syslog_mirage.Udp(C)(P)(S)
+
+  let start c _random _pclock _mclock _ stack res ctx info =
+    let hostname = Key_gen.name ()
+    and syslog = Key_gen.syslog ()
+    and monitor = Key_gen.monitor ()
+    in
+    if Ipaddr.V4.compare syslog Ipaddr.V4.unspecified = 0 then
+      Logs.warn (fun m -> m "no syslog specified, dumping on stdout")
+    else
+      Logs.set_reporter (Syslog.create c stack syslog ~hostname ());
+    if Ipaddr.V4.compare monitor Ipaddr.V4.unspecified = 0 then
+      Logs.warn (fun m -> m "no monitor specified, not outputting statistics")
+    else
+      Monitoring.create ~hostname monitor stack;
+    List.iter (fun (p, v) -> Logs.app (fun m -> m "used package: %s %s" p v))
+      info.Mirage_info.packages;
     let keyname, keyzone, dnskey =
       match Dnskey.name_key_of_string (Key_gen.dns_key ()) with
       | Error (`Msg msg) -> Logs.err (fun m -> m "couldn't parse dnskey: %s" msg) ; exit 64
@@ -180,6 +204,7 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                         (Domain_name.Set.elements !in_flight)))
     in
     let request_certificate server le ctx ~tlsa_name csr =
+      inc "requesting certificate";
       if mem_flight tlsa_name then
         Logs.err (fun m -> m "request with %a already in-flight"
                      Domain_name.pp tlsa_name)
@@ -203,6 +228,8 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
               Logs.err (fun m -> m "received an empty certificate chain for %a" Domain_name.pp tlsa_name);
               Lwt.return_unit
             | Ok (cert::cas) ->
+              inc "provisioned certificate";
+              let certificate = X509.Certificate.encode_der cert in
               Logs.info (fun m -> m "certificate received for %a" Domain_name.pp tlsa_name);
               match Dns_trie.lookup tlsa_name Rr_map.Tlsa (Dns_server.Secondary.data server) with
               | Error e ->
@@ -278,7 +305,7 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                                      Dns_tsig.pp_e e Domain_name.pp tlsa_name)
                       | Ok (res, _, _) ->
                         match Packet.reply_matches_request ~request:packet res with
-                        | Ok _ -> ()
+                        | Ok _ -> inc "uploaded certificate"
                         | Error e ->
                           (* TODO: if badtime, adjust our time (to the other time) and resend ;) *)
                           Logs.err (fun m -> m "invalid reply %a for %a, got %a"
@@ -307,6 +334,7 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
 
       let on_update ~old:_ t =
         dns_state := t;
+        inc "on update";
         (* what to do here?
              foreach _changed_ TLSA record (can as well just do all for now)
              - if it starts with _letsencrypt._tcp (needs domain_name API)
