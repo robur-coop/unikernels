@@ -338,7 +338,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                                   Dns_trie.pp_e e Domain_name.pp name)
                    | Some (keyname, key), Ok (zone, _) ->
                      match X509.Signing_request.decode_der csr.Tlsa.data, Domain_name.host zone with
-                     | Error (`Parse str), _ -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
+                     | Error (`Msg str), _ -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
                      | _, Error (`Msg msg) -> Logs.err (fun m -> m "zone %a not a hostname: %s" Domain_name.pp zone msg)
                      | Ok csr, Ok zone ->
                        match X509.(Distinguished_name.common_name Signing_request.((info csr).subject)) with
