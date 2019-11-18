@@ -110,24 +110,27 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
         (Ok []) keys >>| fun keys ->
       (data_trie, keys)
 
-  let store_zone t store zone =
-    (* TODO maybe make this conditionally on modifications of the zone? *)
+  let store_zone key ip t store zone =
     match Dns_server.text zone (Dns_server.Primary.data t) with
     | Error (`Msg msg) ->
       Logs.err (fun m -> m "error while converting zone %a: %s" Domain_name.pp zone msg) ;
       Lwt.return_unit
     | Ok data ->
-      let info = fun () ->
-        let date = Int64.of_float Ptime.Span.(to_float_s (v (P.now_d_ps ()))) in
-        let commit = Fmt.strf "change of %a" Domain_name.pp zone in
-        Irmin.Info.v ~date ~author:"dns primary git server" commit
+      let info () =
+        let date = Int64.of_float Ptime.Span.(to_float_s (v (P.now_d_ps ())))
+        and commit = Fmt.strf "%a changed %a" Ipaddr.V4.pp ip Domain_name.pp zone
+        and author = Fmt.strf "%a via pimary git" Fmt.(option ~none:(unit "no key") Domain_name.pp) key
+        in
+        Irmin.Info.v ~date ~author commit
       in
-      (* TODO to_strings once we use directories ;) *)
       Store.set ~info store [Domain_name.to_string zone] data >|= function
       | Ok () -> ()
       | Error _ -> Logs.err (fun m -> m "error while writing to store")
 
-  let store_zones ~old t store upstream =
+  let store_zones ~old key ip t store upstream =
+    (* TODO do a single commit!
+       - either KV and batch (but no commit context)
+       - or Store.set_tree but dunno what the tree should be? all zones? *)
     let data = Dns_server.Primary.data t in
     let zones =
       Dns_trie.fold Dns.Rr_map.Soa data
@@ -138,7 +141,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
            | Error _ -> dname :: acc)
         []
     in
-    Lwt_list.iter_s (store_zone t store) zones >>= fun () ->
+    Lwt_list.iter_s (store_zone key ip t store) zones >>= fun () ->
     (* TODO removal of a zone should lead to dropping this zone from git! *)
     Logs.info (fun m -> m "pushing to remote!");
     Sync.push store upstream  >|= function
@@ -156,7 +159,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
       Logs.err (fun m -> m "error during loading git %s" msg);
       Lwt.return_unit
     | Ok (trie, keys) ->
-      let on_update ~old t = store_zones ~old t store upstream in
+      let on_update ~old key ip t = store_zones ~old key ip t store upstream in
       let on_notify n _t =
         match n with
         | `Notify soa ->
