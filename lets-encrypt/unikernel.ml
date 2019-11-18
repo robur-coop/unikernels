@@ -154,7 +154,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                         Fmt.(list ~sep:(unit ",@ ") Domain_name.pp)
                         (Domain_name.Set.elements !in_flight)))
     in
-    let request_certificate server le ctx ~zone ~tlsa_name ~keyname dnskey csr =
+    let request_certificate server le ctx ~tlsa_name ~keyname dnskey csr =
       if mem_flight tlsa_name then
         Logs.err (fun m -> m "request with %a already in-flight"
                      Domain_name.pp tlsa_name)
@@ -168,6 +168,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             let sleep () = OS.Time.sleep_ns (Duration.of_sec 3) in
             let now = Ptime.v (P.now_d_ps ()) in
             let id = Randomconv.int16 R.generate in
+            let zone = Domain_name.host_exn @@ Domain_name.drop_label_exn ~amount:2 keyname in
             let solver = Letsencrypt.Client.default_dns_solver id now send_dns ~recv:recv_dns ~keyname dnskey ~zone in
             Acme.sign_certificate ~ctx ~solver le sleep csr >>= function
             | Error (`Msg e) ->
@@ -329,18 +330,14 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                  in
                  if interesting then
                    (* update key exists? *)
-                   match find_update_key name, Dns_trie.zone name trie with
-                   | None, _ ->
+                   match find_update_key name with
+                   | None ->
                      Logs.err (fun m -> m "couldn't find an update key for %a"
                                   Domain_name.pp name)
-                   | _, Error e ->
-                     Logs.err (fun m -> m "error %a while looking up zone for %a"
-                                  Dns_trie.pp_e e Domain_name.pp name)
-                   | Some (keyname, key), Ok (zone, _) ->
-                     match X509.Signing_request.decode_der csr.Tlsa.data, Domain_name.host zone with
-                     | Error (`Msg str), _ -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
-                     | _, Error (`Msg msg) -> Logs.err (fun m -> m "zone %a not a hostname: %s" Domain_name.pp zone msg)
-                     | Ok csr, Ok zone ->
+                   | Some (keyname, key) ->
+                     match X509.Signing_request.decode_der csr.Tlsa.data with
+                     | Error (`Msg str) -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
+                     | Ok csr ->
                        match X509.(Distinguished_name.common_name Signing_request.((info csr).subject)) with
                        | None -> Logs.err (fun m -> m "cannot find name of signing request")
                        | Some nam ->
@@ -351,7 +348,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                                Logs.err (fun m -> m "csr cn %a isn't a superdomain of DNS %a"
                                             Domain_name.pp csr_name Domain_name.pp name)
                              else
-                               request_certificate t le ctx ~zone ~tlsa_name:name ~keyname key csr
+                               request_certificate t le ctx ~tlsa_name:name ~keyname key csr
                          end
                  else
                    Logs.warn (fun m -> m "not interesting (certs) %a" Domain_name.pp name)
