@@ -159,8 +159,9 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
       Logs.err (fun m -> m "error during loading git %s" msg);
       Lwt.return_unit
     | Ok (trie, keys) ->
-      let on_update ~old key ip t = store_zones ~old key ip t store upstream in
-      let on_notify n _t =
+      let on_update ~old ~authenticated_key ~update_source t =
+        store_zones ~old authenticated_key update_source t store upstream
+      and on_notify n _t =
         match n with
         | `Notify soa ->
           Logs.err (fun m -> m "ignoring normal notify %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa);
