@@ -22,15 +22,12 @@ let port =
 
 let dns_handler =
   let packages =
-    let pin = "git+https://github.com/roburio/udns.git" in
     [
       package "logs" ;
-      package ~pin "dns-server";
-      package ~pin "dns-mirage-server";
-      package ~pin "dns-zone";
-      package ~pin "dns-tsig";
+      package ~sublibs:["mirage" ; "zone"] "dns-server";
+      package "dns-tsig";
       package "nocrypto" ;
-      package "irmin-unix" ;
+      package ~min:"2.0.0" "irmin-unix" ;
     ]
   and keys = Key.([ abstract keys ; abstract repo ; abstract port ])
   in
