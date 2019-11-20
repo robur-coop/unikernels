@@ -27,7 +27,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
       Store.master repo >>= fun branch ->
       let trie = Dns_server.Secondary.data t in
       let zones =
-        Dns_trie.fold Soa trie (fun zone _ acc ->
+        Dns_trie.fold Dns.Rr_map.Soa trie (fun zone _ acc ->
             match Dns_server.text zone trie with
             | Error (`Msg str) ->
               Logs.err (fun m -> m "updated zone %a, but failed text %s" Domain_name.pp zone str) ;
@@ -45,7 +45,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
                 Lwt.return_unit
               | _ ->
                 Store.set branch ~info:(info "zone transferred") k data >|= function
-                | Error e -> Logs.warn (fun m -> m "Store.set failed")
+                | Error _ -> Logs.warn (fun m -> m "Store.set failed")
                 | Ok () -> ()) >|= fun () ->
           (* try to load it again... just in case ;) *)
           match Dns_zone.parse data with
@@ -60,7 +60,6 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
                | Error e ->
                  Logs.err (fun m -> m "error %a during check()" Dns_trie.pp_zone_check e)) ;
               (* and generate a zonefile from the trie *)
-              let s = Dns_server.Secondary.with_data t trie in
               match Dns_server.text zone trie with
               | Error (`Msg str) ->
                 Logs.err (fun m -> m "failed to produce zone %a second time %s"
