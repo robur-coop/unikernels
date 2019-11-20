@@ -10,7 +10,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
   let start _rng pclock mclock _ s _ =
     let keys = List.fold_left (fun acc str ->
         match Dns.Dnskey.name_key_of_string str with
-        | Error (`Msg msg) -> Logs.err (fun m -> m "key parse error: %s" msg) ; acc
+        | Error (`Msg msg) -> Logs.err (fun m -> m "key parse error %s" msg) ; exit 64
         | Ok (name, key) -> (name, key) :: acc)
         [] (Key_gen.keys ())
     in

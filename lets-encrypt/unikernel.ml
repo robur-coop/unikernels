@@ -79,7 +79,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
     let update_keys, dns_keys =
       List.fold_left (fun (up, keys) str_key ->
           match Dnskey.name_key_of_string str_key with
-          | Error (`Msg msg) -> invalid_arg ("couldn't parse dnskey: " ^ msg)
+          | Error (`Msg msg) -> Logs.err (fun m -> m "couldn't parse dnskey: %s" msg) ; exit 64
           | Ok (key_name, dnskey) ->
             Logs.app (fun m -> m "inserting key for %a" Domain_name.pp key_name) ;
             let up =
@@ -351,10 +351,10 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                                request_certificate t le ctx ~tlsa_name:name ~keyname key csr
                          end
                  else
-                   Logs.warn (fun m -> m "not interesting (certs) %a" Domain_name.pp name)
+                   Logs.debug (fun m -> m "not interesting (certs) %a" Domain_name.pp name)
                end
              else
-               Logs.warn (fun m -> m "name not interesting %a" Domain_name.pp name)) ();
+               Logs.debug (fun m -> m "name not interesting %a" Domain_name.pp name)) ();
         Lwt.return_unit
       in
       DS.secondary ~on_update stack dns_secondary ;
