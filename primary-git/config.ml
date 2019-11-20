@@ -9,11 +9,11 @@ let remote_k =
 let dns_handler =
   let packages = [
     package "logs" ;
-    package ~sublibs:["mirage"; "zone"] "dns-server";
+    package ~min:"4.2.0" ~sublibs:["mirage"; "zone"] "dns-server";
     package "dns-tsig";
     package "nocrypto" ;
-    package "irmin-mirage";
-    package "irmin-mirage-git";
+    package ~min:"2.0.0" "irmin-mirage";
+    package ~min:"2.0.0" "irmin-mirage-git";
     package "conduit-mirage";
   ] in
   foreign

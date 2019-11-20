@@ -7,7 +7,7 @@ sudo: false
 env:
   global:
     - PACKAGE="unikernels"
-    - EXTRA_REMOTES="https://github.com/hannesm/mirage-dev.git#easy"
+    - EXTRA_REMOTES="git+https://github.com/samoht/opam-repository.git#release-irmin-2.0.0"
     - TESTS=false
     - DISTRO=alpine
   matrix:
