@@ -1,12 +1,10 @@
 (* (c) 2018 Hannes Mehnert, all rights reserved *)
 
-open Mirage_types_lwt
-
 open Lwt.Infix
 
 open Dns
 
-module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S)= struct
+module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S)= struct
   module Acme = Letsencrypt.Client.Make(Cohttp_mirage.Client)
 
   module D = Dns_mirage.Make(S)
@@ -37,11 +35,11 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
 
   let interesting_csr, interesting_cert =
     let tlsa_interesting t =
-      t.Tlsa.matching_type = No_hash &&
-      t.cert_usage = Domain_issued_certificate
+      t.Tlsa.matching_type = Tlsa.No_hash &&
+      t.Tlsa.cert_usage = Tlsa.Domain_issued_certificate
     in
-    ((fun t -> tlsa_interesting t && t.selector = Private),
-     (fun t -> tlsa_interesting t && t.selector = Full_certificate))
+    ((fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Private),
+     (fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Full_certificate))
 
   let valid_and_matches_csr csr cert =
     (* parse csr, parse cert: match public keys, match validity of cert *)
@@ -184,13 +182,13 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                              Domain_name.pp tlsa_name Dns_trie.pp_e e);
                 remove_flight tlsa_name;
                 Lwt.return_unit
-              | Ok (ttl, tlsas) ->
+              | Ok (_, tlsas) ->
                 let update =
                   let add =
-                    let tlsa = { Tlsa.cert_usage = Domain_issued_certificate ;
-                                 selector = Full_certificate ;
-                                 matching_type = No_hash ;
-                                 data = certificate }
+                    let tlsa = Tlsa.{ cert_usage = Domain_issued_certificate ;
+                                      selector = Full_certificate ;
+                                      matching_type = No_hash ;
+                                      data = certificate }
                     in
                     Packet.Update.Add Rr_map.(B (Tlsa, (3600l, Tlsa_set.singleton tlsa)))
                   and remove =
