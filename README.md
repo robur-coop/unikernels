@@ -14,7 +14,7 @@ If you want to use them in a corporate environment, and avoid any legal issues, 
 
 Follow the [MirageOS installation instructions](https://mirage.io/wiki/install)
 unless you already have OCaml (at least 4.07.0), opam (at least 2.0.0), and the
-`mirage` command line utility (at least 3.5.2 from August 2019) installed.
+`mirage` command line utility (at least 3.7.1 from November 2019) installed.
 
 In any of the subdirectories, run `mirage configure` (see `mirage help
 configure` for options), followed by `make depend` and `make` (read more

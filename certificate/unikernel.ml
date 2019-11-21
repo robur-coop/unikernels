@@ -1,10 +1,7 @@
 (* (c) 2018 Hannes Mehnert, all rights reserved *)
-
-open Mirage_types_lwt
-
 open Lwt.Infix
 
-module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S: Mirage_stack_lwt.V4) = struct
+module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S: Mirage_stack.V4) = struct
   module D = Dns_certify_mirage.Make(R)(P)(T)(S)
   module TLS = Tls_mirage.Make(S.TCPV4)
 

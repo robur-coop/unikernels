@@ -1,19 +1,16 @@
 (* (c) 2017, 2018 Hannes Mehnert, all rights reserved *)
-
 open Lwt.Infix
 
-open Mirage_types_lwt
-
-module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = struct
-  module D = Dns_mirage_server.Make(P)(M)(T)(S)
+module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) = struct
+  module D = Dns_server_mirage.Make(P)(M)(T)(S)
   module Store = Irmin_unix.Git.FS.KV(* (Irmin_unix.Git.G) *)(Irmin.Contents.String)
 
   let info = Irmin_unix.info ~author:"udns-git"
 
-  let start _rng pclock mclock _ s _ =
+  let start _rng _pclock _mclock _ s _ =
     let keys = List.fold_left (fun acc key ->
         match Dns.Dnskey.name_key_of_string key with
-        | Error (`Msg msg) -> Logs.err (fun m -> m "key parse error: %s" msg) ; acc
+        | Error (`Msg msg) -> Logs.err (fun m -> m "key parse error: %s" msg) ; exit 64
         | Ok (name, key) -> (name, key) :: acc)
         [] (Key_gen.keys ())
     in
@@ -30,7 +27,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
       Store.master repo >>= fun branch ->
       let trie = Dns_server.Secondary.data t in
       let zones =
-        Dns_trie.fold Soa trie (fun zone _ acc ->
+        Dns_trie.fold Dns.Rr_map.Soa trie (fun zone _ acc ->
             match Dns_server.text zone trie with
             | Error (`Msg str) ->
               Logs.err (fun m -> m "updated zone %a, but failed text %s" Domain_name.pp zone str) ;
@@ -48,7 +45,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
                 Lwt.return_unit
               | _ ->
                 Store.set branch ~info:(info "zone transferred") k data >|= function
-                | Error e -> Logs.warn (fun m -> m "Store.set failed")
+                | Error _ -> Logs.warn (fun m -> m "Store.set failed")
                 | Ok () -> ()) >|= fun () ->
           (* try to load it again... just in case ;) *)
           match Dns_zone.parse data with
@@ -63,7 +60,6 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
                | Error e ->
                  Logs.err (fun m -> m "error %a during check()" Dns_trie.pp_zone_check e)) ;
               (* and generate a zonefile from the trie *)
-              let s = Dns_server.Secondary.with_data t trie in
               match Dns_server.text zone trie with
               | Error (`Msg str) ->
                 Logs.err (fun m -> m "failed to produce zone %a second time %s"

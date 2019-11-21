@@ -1,14 +1,9 @@
 (* (c) 2017, 2018 Hannes Mehnert, all rights reserved *)
-
-open Lwt.Infix
-
-open Mirage_types_lwt
-
-module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = struct
+module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) = struct
   module D = Dns_resolver_mirage.Make(R)(P)(M)(T)(S)
 
-  let start _r pclock mclock _ s _ =
-    let now = M.elapsed_ns mclock in
+  let start _r _pclock _mclock _ s _ =
+    let now = M.elapsed_ns () in
     let server =
       Dns_server.Primary.create ~rng:R.generate Dns_resolver_root.reserved
     in

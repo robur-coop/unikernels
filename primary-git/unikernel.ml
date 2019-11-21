@@ -2,11 +2,9 @@
 
 open Lwt.Infix
 
-open Mirage_types_lwt
+module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S) = struct
 
-module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S) = struct
-
-  module Store = Irmin_mirage.Git.Mem.KV(Irmin.Contents.String)
+  module Store = Irmin_mirage_git.Mem.KV(Irmin.Contents.String)
   module Sync = Irmin.Sync(Store)
 
   let connect_store resolver conduit =
@@ -17,9 +15,10 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
   let pull_store repo upstream =
     Logs.info (fun m -> m "pulling from remote!");
     Sync.pull repo upstream `Set >|= function
-    | Ok () -> Logs.info (fun m -> m "ok, pulled!")
-    | Error (#Sync.fetch_error as e) -> Logs.warn (fun m -> m "fetch error %a" Sync.pp_fetch_error e)
-    | Error (`Conflict msg) -> Logs.warn (fun m -> m "pull failed with conflict %s" msg)
+    | Ok `Empty -> Logs.warn (fun m -> m "pulled empty repository")
+    | Ok (`Head _ as s) -> Logs.info (fun m -> m "ok, pulled %a!" Sync.pp_status s)
+    | Error (`Msg e) -> Logs.warn (fun m -> m "pull error %s" e)
+    | Error (`Conflict msg) -> Logs.warn (fun m -> m "pull conflict %s" msg)
 
   let load_zones store upstream =
     (* TODO recurse over directories (io/nqsb, org/openmirage) for zones *)
@@ -45,9 +44,22 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
                     Fmt.(list ~sep:(unit ",@ ") (pair ~sep:(unit ": ") Domain_name.pp int))
                     (List.map (fun (k, v) -> k, String.length v) bindings)) ;
       let open Rresult.R.Infix in
+      (* split into keys and zones *)
+      let keys, data =
+        let is_key subdomain =
+          Domain_name.is_subdomain ~domain:(Domain_name.of_string_exn "_keys") ~subdomain
+        in
+        let keys, data = List.partition (fun (name, _) -> is_key name) bindings in
+        List.map (fun (n, v) -> Domain_name.drop_label_exn ~rev:true n, v) keys,
+        data
+      in
       let parse_and_maybe_add trie zone data =
+        Logs.info (fun m -> m "parsing %a: %s" Domain_name.pp zone data);
         Dns_zone.parse data >>= fun rrs ->
-        if not (Domain_name.Map.for_all (fun name _ -> Domain_name.sub ~domain:zone ~subdomain:name) rrs) then
+        let tst subdomain = Domain_name.is_subdomain ~domain:zone ~subdomain in
+        if not (Domain_name.Map.for_all (fun name _ -> tst name) rrs) then
+          (* how does this behave in respect to delegation and glue?
+             should be fine, if glue is needed it'll be a subdomain of zone *)
           Error (`Msg (Fmt.strf "an entry of %a is not in its zone, won't handle this@.%a"
                          Domain_name.pp zone Dns.Name_rr_map.pp rrs))
         else
@@ -64,82 +76,111 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES
       List.fold_left (fun acc (zone, data) ->
           acc >>= fun trie ->
           parse_and_maybe_add trie zone data)
-        (Ok Dns_trie.empty) bindings
+        (Ok Dns_trie.empty) data >>= fun data_trie ->
+      let parse_keys zone keys =
+        Dns_zone.parse keys >>= fun rrs ->
+        let tst subdomain = Domain_name.is_subdomain ~domain:zone ~subdomain in
+        if not (Domain_name.Map.for_all (fun name _ -> tst name) rrs) then
+          Error (`Msg "key name not in zone")
+        else
+          (* from the name_rr_map extract a (Domain_name.t * Dnskey) list *)
+          let keys =
+            Domain_name.Map.fold (fun n data acc ->
+                match Dns.Rr_map.(find Dnskey data) with
+                | None ->
+                  Logs.warn (fun m -> m "no dnskey found %a" Domain_name.pp n);
+                  acc
+                | Some (_, keys) ->
+                  match Dns.Rr_map.Dnskey_set.elements keys with
+                  | [ x ] ->
+                    Logs.info (fun m -> m "inserting dnskey %a" Domain_name.pp n);
+                    (n, x) :: acc
+                  | xs ->
+                    Logs.warn (fun m -> m "%d dnskeys for %a (expected exactly one)"
+                                  (List.length xs) Domain_name.pp n);
+                    acc)
+              rrs []
+          in
+          Ok keys
+      in
+      List.fold_left (fun acc (zone, keys) ->
+          acc >>= fun acc ->
+          parse_keys zone keys >>| fun ks ->
+          (ks @ acc))
+        (Ok []) keys >>| fun keys ->
+      (data_trie, keys)
 
-  let store_zone t store zone =
-    (* TODO maybe make this conditionally on modifications of the zone? *)
+  let store_zone key ip t store zone =
     match Dns_server.text zone (Dns_server.Primary.data t) with
     | Error (`Msg msg) ->
       Logs.err (fun m -> m "error while converting zone %a: %s" Domain_name.pp zone msg) ;
       Lwt.return_unit
     | Ok data ->
-      let info = fun () ->
-        let date = Int64.of_float Ptime.Span.(to_float_s (v (P.now_d_ps ()))) in
-        let commit = Fmt.strf "change of %a" Domain_name.pp zone in
-        Irmin.Info.v ~date ~author:"dns primary git server" commit
+      let info () =
+        let date = Int64.of_float Ptime.Span.(to_float_s (v (P.now_d_ps ())))
+        and commit = Fmt.strf "%a changed %a" Ipaddr.V4.pp ip Domain_name.pp zone
+        and author = Fmt.strf "%a via pimary git" Fmt.(option ~none:(unit "no key") Domain_name.pp) key
+        in
+        Irmin.Info.v ~date ~author commit
       in
-      (* TODO to_strings once we use directories ;) *)
       Store.set ~info store [Domain_name.to_string zone] data >|= function
       | Ok () -> ()
       | Error _ -> Logs.err (fun m -> m "error while writing to store")
 
-  let store_zones ~old t store upstream =
+  let store_zones ~old key ip t store upstream =
+    (* TODO do a single commit!
+       - either KV and batch (but no commit context)
+       - or Store.set_tree but dunno what the tree should be? all zones? *)
     let data = Dns_server.Primary.data t in
     let zones =
       Dns_trie.fold Dns.Rr_map.Soa data
         (fun dname soa acc ->
-           match Dns_trie.lookup dname Soa old with
+           match Dns_trie.lookup dname Dns.Rr_map.Soa old with
            | Ok old when Dns.Soa.newer ~old soa -> dname :: acc
            | Ok _ -> acc
            | Error _ -> dname :: acc)
         []
     in
-    Lwt_list.iter_s (store_zone t store) zones >>= fun () ->
+    Lwt_list.iter_s (store_zone key ip t store) zones >>= fun () ->
     (* TODO removal of a zone should lead to dropping this zone from git! *)
     Logs.info (fun m -> m "pushing to remote!");
     Sync.push store upstream  >|= function
-    | Ok () -> Logs.app (fun m -> m "pushed zonefiles")
-    | Error `Detached_head -> Logs.err (fun m -> m "detached head while pushing")
-    | Error `No_head -> Logs.err (fun m -> m "no head while pushing")
-    | Error `Not_available -> Logs.err (fun m -> m "not available while pushing")
-    | Error (`Msg msg) -> Logs.err (fun m -> m "pushing: %s" msg)
+    | Ok `Empty -> Logs.warn (fun m -> m "pushed empty zonefiles")
+    | Ok (`Head _ as s) -> Logs.info (fun m -> m "pushed zonefile commit %a" Sync.pp_status s)
+    | Error pe -> Logs.err (fun m -> m "push error %a" Sync.pp_push_error pe)
 
-  module D = Dns_mirage_server.Make(P)(M)(T)(S)
+  module D = Dns_server_mirage.Make(P)(M)(T)(S)
 
   let start _rng _pclock _mclock _time s resolver conduit _ =
-    let keys = List.fold_left (fun acc str ->
-        match Dns.Dnskey.name_key_of_string str with
-        | Error (`Msg msg) -> Logs.err (fun m -> m "key parse error: %s" msg) ; acc
-        | Ok (name, key) -> (name, key) :: acc)
-        [] (Key_gen.keys ())
-    in
     connect_store resolver conduit >>= fun (store, upstream) ->
     Logs.info (fun m -> m "i have now master!");
     load_git store upstream >>= function
     | Error (`Msg msg) ->
       Logs.err (fun m -> m "error during loading git %s" msg);
       Lwt.return_unit
-    | Ok trie ->
-      let on_update ~old t = store_zones ~old t store upstream in
-      let on_notify n t =
-        (match n with
+    | Ok (trie, keys) ->
+      let on_update ~old ~authenticated_key ~update_source t =
+        store_zones ~old authenticated_key update_source t store upstream
+      and on_notify n _t =
+        match n with
         | `Notify soa ->
-          Logs.err (fun m -> m "ignoring normal notify %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa)
+          Logs.err (fun m -> m "ignoring normal notify %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa);
+          Lwt.return None
         | `Signed_notify soa ->
-          Logs.info (fun m -> m "got notified, checking out %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa));
-        load_git store upstream >|= function
-        | Error msg ->
-          Logs.err (fun m -> m "error while loading git while in notify, continuing with old data");
-          None
-        | Ok trie ->
-          Logs.info (fun m -> m "loaded a new trie from git!");
-          Some trie
-    in
-    let t =
-      Dns_server.Primary.create ~keys ~a:[Dns_server.Authentication.tsig_auth]
-        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
-        ~rng:R.generate trie
-    in
-    D.primary ~on_update ~on_notify s t ;
-    S.listen s
+          Logs.info (fun m -> m "got notified, checking out %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa);
+          load_git store upstream >|= function
+          | Error (`Msg msg) ->
+            Logs.err (fun m -> m "error %s while loading git while in notify, continuing with old data" msg);
+            None
+          | Ok trie ->
+            Logs.info (fun m -> m "loaded a new trie from git!");
+            Some trie
+      in
+      let t =
+        Dns_server.Primary.create ~keys ~a:[Dns_server.Authentication.tsig_auth]
+          ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
+          ~rng:R.generate trie
+      in
+      D.primary ~on_update ~on_notify s t ;
+      S.listen s
 end

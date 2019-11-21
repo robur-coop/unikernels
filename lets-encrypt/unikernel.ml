@@ -1,12 +1,10 @@
 (* (c) 2018 Hannes Mehnert, all rights reserved *)
 
-open Mirage_types_lwt
-
 open Lwt.Infix
 
 open Dns
 
-module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S)= struct
+module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S)= struct
   module Acme = Letsencrypt.Client.Make(Cohttp_mirage.Client)
 
   module D = Dns_mirage.Make(S)
@@ -37,11 +35,11 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
 
   let interesting_csr, interesting_cert =
     let tlsa_interesting t =
-      t.Tlsa.matching_type = No_hash &&
-      t.cert_usage = Domain_issued_certificate
+      t.Tlsa.matching_type = Tlsa.No_hash &&
+      t.Tlsa.cert_usage = Tlsa.Domain_issued_certificate
     in
-    ((fun t -> tlsa_interesting t && t.selector = Private),
-     (fun t -> tlsa_interesting t && t.selector = Full_certificate))
+    ((fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Private),
+     (fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Full_certificate))
 
   let valid_and_matches_csr csr cert =
     (* parse csr, parse cert: match public keys, match validity of cert *)
@@ -79,7 +77,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
     let update_keys, dns_keys =
       List.fold_left (fun (up, keys) str_key ->
           match Dnskey.name_key_of_string str_key with
-          | Error (`Msg msg) -> invalid_arg ("couldn't parse dnskey: " ^ msg)
+          | Error (`Msg msg) -> Logs.err (fun m -> m "couldn't parse dnskey: %s" msg) ; exit 64
           | Ok (key_name, dnskey) ->
             Logs.app (fun m -> m "inserting key for %a" Domain_name.pp key_name) ;
             let up =
@@ -154,7 +152,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                         Fmt.(list ~sep:(unit ",@ ") Domain_name.pp)
                         (Domain_name.Set.elements !in_flight)))
     in
-    let request_certificate server le ctx ~zone ~tlsa_name ~keyname dnskey csr =
+    let request_certificate server le ctx ~tlsa_name ~keyname dnskey csr =
       if mem_flight tlsa_name then
         Logs.err (fun m -> m "request with %a already in-flight"
                      Domain_name.pp tlsa_name)
@@ -168,6 +166,7 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
             let sleep () = OS.Time.sleep_ns (Duration.of_sec 3) in
             let now = Ptime.v (P.now_d_ps ()) in
             let id = Randomconv.int16 R.generate in
+            let zone = Domain_name.host_exn @@ Domain_name.drop_label_exn ~amount:2 keyname in
             let solver = Letsencrypt.Client.default_dns_solver id now send_dns ~recv:recv_dns ~keyname dnskey ~zone in
             Acme.sign_certificate ~ctx ~solver le sleep csr >>= function
             | Error (`Msg e) ->
@@ -183,13 +182,13 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                              Domain_name.pp tlsa_name Dns_trie.pp_e e);
                 remove_flight tlsa_name;
                 Lwt.return_unit
-              | Ok (ttl, tlsas) ->
+              | Ok (_, tlsas) ->
                 let update =
                   let add =
-                    let tlsa = { Tlsa.cert_usage = Domain_issued_certificate ;
-                                 selector = Full_certificate ;
-                                 matching_type = No_hash ;
-                                 data = certificate }
+                    let tlsa = Tlsa.{ cert_usage = Domain_issued_certificate ;
+                                      selector = Full_certificate ;
+                                      matching_type = No_hash ;
+                                      data = certificate }
                     in
                     Packet.Update.Add Rr_map.(B (Tlsa, (3600l, Tlsa_set.singleton tlsa)))
                   and remove =
@@ -329,18 +328,14 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                  in
                  if interesting then
                    (* update key exists? *)
-                   match find_update_key name, Dns_trie.zone name trie with
-                   | None, _ ->
+                   match find_update_key name with
+                   | None ->
                      Logs.err (fun m -> m "couldn't find an update key for %a"
                                   Domain_name.pp name)
-                   | _, Error e ->
-                     Logs.err (fun m -> m "error %a while looking up zone for %a"
-                                  Dns_trie.pp_e e Domain_name.pp name)
-                   | Some (keyname, key), Ok (zone, _) ->
-                     match X509.Signing_request.decode_der csr.Tlsa.data, Domain_name.host zone with
-                     | Error (`Parse str), _ -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
-                     | _, Error (`Msg msg) -> Logs.err (fun m -> m "zone %a not a hostname: %s" Domain_name.pp zone msg)
-                     | Ok csr, Ok zone ->
+                   | Some (keyname, key) ->
+                     match X509.Signing_request.decode_der csr.Tlsa.data with
+                     | Error (`Msg str) -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
+                     | Ok csr ->
                        match X509.(Distinguished_name.common_name Signing_request.((info csr).subject)) with
                        | None -> Logs.err (fun m -> m "cannot find name of signing request")
                        | Some nam ->
@@ -351,13 +346,13 @@ module Client (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) (R
                                Logs.err (fun m -> m "csr cn %a isn't a superdomain of DNS %a"
                                             Domain_name.pp csr_name Domain_name.pp name)
                              else
-                               request_certificate t le ctx ~zone ~tlsa_name:name ~keyname key csr
+                               request_certificate t le ctx ~tlsa_name:name ~keyname key csr
                          end
                  else
-                   Logs.warn (fun m -> m "not interesting (certs) %a" Domain_name.pp name)
+                   Logs.debug (fun m -> m "not interesting (certs) %a" Domain_name.pp name)
                end
              else
-               Logs.warn (fun m -> m "name not interesting %a" Domain_name.pp name)) ();
+               Logs.debug (fun m -> m "name not interesting %a" Domain_name.pp name)) ();
         Lwt.return_unit
       in
       DS.secondary ~on_update stack dns_secondary ;

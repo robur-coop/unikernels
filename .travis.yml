@@ -7,7 +7,6 @@ sudo: false
 env:
   global:
     - PACKAGE="unikernels"
-    - EXTRA_REMOTES="https://github.com/hannesm/mirage-dev.git#easy"
     - TESTS=false
     - DISTRO=alpine
   matrix:

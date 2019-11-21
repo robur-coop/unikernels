@@ -1,8 +1,5 @@
 (* (c) 2017, 2018 Hannes Mehnert, all rights reserved *)
-
-open Mirage_types_lwt
-
-module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = struct
+module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) = struct
 
   module D = Dns_server_mirage.Make(P)(M)(T)(S)
 
@@ -66,7 +63,7 @@ module Main (R : RANDOM) (P : PCLOCK) (M : MCLOCK) (T : TIME) (S : STACKV4) = st
     let keys =
       let key key =
         let key = Cstruct.of_string key in
-        { Dns.Dnskey.flags = 0 ; algorithm = SHA256 ; key }
+        Dns.Dnskey.{ flags = 0 ; algorithm = SHA256 ; key }
       in
       [
         Domain_name.of_string_exn "10.0.42.2.10.0.42.4._transfer.mirage" ,

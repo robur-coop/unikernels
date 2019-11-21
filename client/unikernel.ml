@@ -2,7 +2,7 @@
 
 open Lwt.Infix
 
-module Main (R : Mirage_random.C) (M : Mirage_clock.MCLOCK) (S : Mirage_stack_lwt.V4) = struct
+module Main (R : Mirage_random.S) (M : Mirage_clock.MCLOCK) (S : Mirage_stack.V4) = struct
 
   module DNS = Dns_client_mirage.Make(R)(M)(S)
 
