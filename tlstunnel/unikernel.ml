@@ -2,7 +2,7 @@
 
 open Lwt.Infix
 
-module Main (Keys : Mirage_kv_lwt.RO) (Pclock : Mirage_clock.PCLOCK) (Public : Mirage_stack_lwt.V4) (Private : Mirage_stack_lwt.V4) = struct
+module Main (Keys : Mirage_kv.RO) (Pclock : Mirage_clock.PCLOCK) (Public : Mirage_stack.V4) (Private : Mirage_stack.V4) = struct
 
   module X509 = Tls_mirage.X509(Keys)(Pclock)
   module TLS = Tls_mirage.Make(Public.TCPV4)
@@ -13,7 +13,7 @@ module Main (Keys : Mirage_kv_lwt.RO) (Pclock : Mirage_clock.PCLOCK) (Public : M
       Logs.err (fun m -> m "TLS read error %a" TLS.pp_error e);
       Private.TCPV4.close tcp
     | Ok `Eof ->
-      Logs.warn (fun m -> m "TLS read eof");
+      Logs.info (fun m -> m "TLS read eof");
       Private.TCPV4.close tcp
     | Ok `Data buf ->
       Private.TCPV4.write tcp buf >>= function
@@ -51,7 +51,8 @@ module Main (Keys : Mirage_kv_lwt.RO) (Pclock : Mirage_clock.PCLOCK) (Public : M
       in
       Private.TCPV4.create_connection priv (backend_ip, backend_port) >>= function
       | Error e ->
-        Logs.err (fun m -> m "error %a connecting to backend" Private.TCPV4.pp_error e);
+        Logs.err (fun m -> m "error %a connecting to backend"
+                     Private.TCPV4.pp_error e);
         TLS.close tls_flow
       | Ok tcp_flow ->
         Lwt.join [
@@ -68,6 +69,6 @@ module Main (Keys : Mirage_kv_lwt.RO) (Pclock : Mirage_clock.PCLOCK) (Public : M
     tls_init kv >>= fun config ->
     let priv_tcp = Private.tcpv4 priv in
     Public.listen_tcpv4 pub ~port:frontend_port (tls_accept priv_tcp config);
-    (* waiting - could call Pulic.listen pub, but that's pointless *)
+    (* waiting - could call Public.listen pub, but that's pointless *)
     fst (Lwt.task ())
 end
