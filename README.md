@@ -29,10 +29,15 @@ If you want to compile for Linux KVM, FreeBSD BHyve, OpenBSD VMM (by using
 [solo5](https://github.com/solo5/solo5)), run `mirage configure -t hvt` (or
 `-t virtio` for Google Compute Engine).
 
-All unikernels require you to have µDNS installed (`opam pin add udns https://github.com/roburio/udns`).
-
 All unikernels use the default stack implementation, and thus will listen on
 10.0.0.2/24, their gateway being 10.0.0.1.
+
+## TLS tunnel
+
+The [`tlstunnel`](tlstunnel/) subdirectory contains a TLS terminator: it listens
+on a public network interface for TLS connections, once a TLS connection is
+established this is forwarded to the specified host on the backend interface
+via TCP.
 
 ## Primary authoritative nameservers
 
@@ -60,8 +65,8 @@ succeeded).
 
 A setup how they play together could be:
 ```
-# ./solo5-hvt --net=tap0 -- primary/primary.hvt -l \*:debug
-# ./solo5-hvt --net=tap1 -- secondary/secondary.hvt -l \*:debug --keys 10.0.42.2.10.0.42.4._transfer.mirage:SHA256:E0A7MFr4kfcGIRngRVBcBdFPg43XIb2qbGswcn66q4Q=
+# solo5-hvt --net=tap0 -- primary/primary.hvt -l \*:debug
+# solo5-hvt --net=tap1 -- secondary/secondary.hvt -l \*:debug --keys 10.0.42.2.10.0.42.4._transfer.mirage:SHA256:E0A7MFr4kfcGIRngRVBcBdFPg43XIb2qbGswcn66q4Q=
 ```
 
 ## Let's encrypt certification unikernel
