@@ -7,10 +7,24 @@ _build/
 *.hvt
 key_gen.ml
 main.ml
+.merlin
+dune.config
+dune.build
+dune
+dune-project
 mirage-unikernel-*.opam
+*install
 myocamlbuild.ml
 solo5-hvt
 secondary_git
+certificate
+client
+letsencrypt
+primary-git
+primary
+resolver
+secondary
+tlstunnel
 
 *pcap
 *out
