@@ -95,10 +95,8 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
     let dns_server = Key_gen.dns_server () in
     (* TODO rework to use ip from transfer key! *)
     let dns_secondary =
-      Dns_server.Secondary.create ~primary:dns_server
-        ~a:[ Dns_server.Authentication.tsig_auth ]
-        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
-        ~rng:R.generate dns_keys
+      Dns_server.Secondary.create ~primary:dns_server ~rng:R.generate
+        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign dns_keys
     in
     (* TODO check that we've for each zone (of the secondary) an update key *)
 

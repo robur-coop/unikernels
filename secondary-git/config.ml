@@ -24,7 +24,7 @@ let dns_handler =
   let packages =
     [
       package "logs" ;
-      package ~sublibs:["mirage" ; "zone"] "dns-server";
+      package ~min:"4.3.0" ~sublibs:["mirage" ; "zone"] "dns-server";
       package "dns-tsig";
       package "nocrypto" ;
       package ~min:"2.0.0" "irmin-unix" ;

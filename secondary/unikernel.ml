@@ -10,9 +10,8 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
         [] (Key_gen.keys ())
     in
     let t =
-      Dns_server.Secondary.create ~a:[ Dns_server.Authentication.tsig_auth ]
-        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
-        ~rng:R.generate keys
+      Dns_server.Secondary.create ~rng:R.generate
+        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign keys
     in
     D.secondary s t ;
     S.listen s

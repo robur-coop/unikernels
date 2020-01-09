@@ -42,7 +42,7 @@ let packages =
     package "letsencrypt" ;
     package "conduit-mirage" ;
     package "dns-tsig";
-    package ~sublibs:[ "mirage" ] "dns-server";
+    package ~min:"4.3.0" ~sublibs:[ "mirage" ] "dns-server";
     package "randomconv" ;
     package ~min:"0.3.0" "domain-name"
 ]
