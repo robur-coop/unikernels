@@ -2,16 +2,21 @@
 
 open Mirage
 
+let axfr =
+  let doc = Key.Arg.info ~doc:"Allow unauthenticated zone transfer." ["axfr"] in
+  Key.(create "axfr" Arg.(flag doc))
+
 let dns_handler =
   let packages =
     [
       package "logs" ;
-      package ~sublibs:[ "mirage" ] "dns-server";
+      package ~min:"4.3.0" ~sublibs:[ "mirage" ] "dns-server";
       package "dns-tsig";
       package "nocrypto"
     ]
   in
   foreign
+    ~keys:[Key.abstract axfr]
     ~deps:[abstract nocrypto]
     ~packages
     "Unikernel.Main"

@@ -177,9 +177,10 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
             Some trie
       in
       let t =
-        Dns_server.Primary.create ~keys ~a:[Dns_server.Authentication.tsig_auth]
-          ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
-          ~rng:R.generate trie
+        let unauthenticated_zone_transfer = Key_gen.axfr () in
+        Dns_server.Primary.create ~keys ~unauthenticated_zone_transfer
+          ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign ~rng:R.generate
+          trie
       in
       D.primary ~on_update ~on_notify s t ;
       S.listen s

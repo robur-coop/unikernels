@@ -8,9 +8,9 @@ open Mirage
    - account key seed
 *)
 
-let dns_keys =
-  let doc = Key.Arg.info ~doc:"nsupdate key (name:type:value,...)" ["dns-keys"] in
-  Key.(create "dns-keys" Arg.(opt (list string) [] doc))
+let dns_key =
+  let doc = Key.Arg.info ~doc:"nsupdate key (name:type:value,...)" ["dns-key"] in
+  Key.(create "dns-key" Arg.(opt string "" doc))
 
 let dns_server =
   let doc = Key.Arg.info ~doc:"dns server IP" ["dns-server"] in
@@ -29,7 +29,7 @@ let production =
   Key.(create "production" Arg.(flag doc))
 
 let keys = Key.[
-    abstract dns_keys ; abstract dns_server ; abstract port ;
+    abstract dns_key ; abstract dns_server ; abstract port ;
     abstract account_key_seed ; abstract production
   ]
 
@@ -42,7 +42,7 @@ let packages =
     package "letsencrypt" ;
     package "conduit-mirage" ;
     package "dns-tsig";
-    package ~sublibs:[ "mirage" ] "dns-server";
+    package ~min:"4.3.0" ~sublibs:[ "mirage" ] "dns-server";
     package "randomconv" ;
     package ~min:"0.3.0" "domain-name"
 ]

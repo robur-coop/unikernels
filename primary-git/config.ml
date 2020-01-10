@@ -6,10 +6,14 @@ let remote_k =
   let doc = Key.Arg.info ~doc:"Remote git repository." ["r"; "remote"] in
   Key.(create "remote" Arg.(opt string "https://github.com/roburio/udns.git" doc))
 
+let axfr =
+  let doc = Key.Arg.info ~doc:"Allow unauthenticated zone transfer." ["axfr"] in
+  Key.(create "axfr" Arg.(flag doc))
+
 let dns_handler =
   let packages = [
     package "logs" ;
-    package ~min:"4.2.0" ~sublibs:["mirage"; "zone"] "dns-server";
+    package ~min:"4.3.0" ~sublibs:["mirage"; "zone"] "dns-server";
     package "dns-tsig";
     package "nocrypto" ;
     package ~min:"2.0.0" "irmin-mirage";
@@ -18,7 +22,7 @@ let dns_handler =
   ] in
   foreign
     ~deps:[abstract nocrypto]
-    ~keys:[Key.abstract remote_k]
+    ~keys:[Key.abstract remote_k ; Key.abstract axfr]
     ~packages
     "Unikernel.Main"
     (random @-> pclock @-> mclock @-> time @-> stackv4 @-> resolver @-> conduit @-> job)

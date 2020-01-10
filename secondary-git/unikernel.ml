@@ -18,9 +18,9 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
     let config = Irmin_git.config ~bare:true root in
     Store.Repo.v config >>= fun repo ->
     let t =
-      Dns_server.Secondary.create ~a:[ Dns_server.Authentication.tsig_auth ]
+      Dns_server.Secondary.create ~rng:R.generate
         ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
-        ~rng:R.generate keys
+        keys
     in
     let on_update ~old:_ t =
       (* find zones, text all of them *)

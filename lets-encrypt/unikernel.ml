@@ -41,6 +41,39 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
     ((fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Private),
      (fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Full_certificate))
 
+  let hostnames_of_csr csr =
+    let open X509.Signing_request in
+    let info = info csr in
+    let subject_alt_names =
+      match Ext.(find Extensions info.extensions) with
+      | Some exts ->
+        begin match X509.Extension.(find Subject_alt_name exts) with
+          | None -> Domain_name.Set.empty
+          | Some (_, san) -> match X509.General_name.(find DNS san) with
+            | None -> Domain_name.Set.empty
+            | Some names -> List.fold_left (fun acc name ->
+                match Domain_name.of_string name with
+                | Ok n -> Domain_name.Set.add n acc
+                | Error `Msg e ->
+                  Logs.warn (fun m -> m "name %s not a domain name: %s" name e);
+                  acc)
+                Domain_name.Set.empty names
+      end
+    | _ -> Domain_name.Set.empty
+  in
+  if Domain_name.Set.is_empty subject_alt_names then
+    begin match X509.Distinguished_name.common_name info.subject with
+      | None -> Domain_name.Set.empty
+      | Some x ->
+        match Domain_name.of_string x with
+        | Ok n -> Domain_name.Set.singleton n
+        | Error `Msg e ->
+          Logs.warn (fun m -> m "common name %s not a domain name %s" x e);
+          Domain_name.Set.empty
+    end
+  else
+    subject_alt_names
+
   let valid_and_matches_csr csr cert =
     (* parse csr, parse cert: match public keys, match validity of cert *)
     match
@@ -48,25 +81,32 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
       X509.Certificate.decode_der cert.Tlsa.data
     with
     | Ok csr, Ok cert ->
-      let now_plus1 =
+      let now_plus_two_weeks =
         let (days, ps) = P.now_d_ps () in
-        Ptime.v (succ days, ps)
+        Ptime.v (days + 14, ps)
       in
       let _, until = X509.Certificate.validity cert in
       let csr_key = X509.Public_key.id X509.Signing_request.((info csr).public_key)
       and cert_key = X509.Public_key.id (X509.Certificate.public_key cert)
       in
-      let valid = Ptime.is_later until ~than:now_plus1
+      let hostnames = X509.Certificate.hostnames cert
+      and csr_names = hostnames_of_csr csr
+      and valid = Ptime.is_later until ~than:now_plus_two_weeks
       and key_eq = Cstruct.equal csr_key cert_key
       in
-      begin match valid, key_eq with
-        | true, true -> true
-        | false, _ ->
+      begin match valid, key_eq, Domain_name.Set.equal hostnames csr_names with
+        | true, true, true -> true
+        | false, _, _ ->
           Logs.err (fun m -> m "%a is not later than %a"
-                       (Ptime.pp_human ()) until (Ptime.pp_human ()) now_plus1) ;
+                       (Ptime.pp_human ()) until (Ptime.pp_human ()) now_plus_two_weeks) ;
           false
-        | _, false ->
+        | _, false, _ ->
           Logs.err (fun m -> m "public keys do not match") ;
+          false
+        | _, _, false ->
+          Logs.err (fun m -> m "csr names %a do not match cert names %a"
+                       Fmt.(list ~sep:(unit ", ") Domain_name.pp) (Domain_name.Set.elements csr_names)
+                       Fmt.(list ~sep:(unit ", ") Domain_name.pp) (Domain_name.Set.elements hostnames));
           false
       end
     | _ ->
@@ -74,34 +114,23 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
       false
 
   let start _random _pclock _mclock _ stack res ctx _ =
-    let update_keys, dns_keys =
-      List.fold_left (fun (up, keys) str_key ->
-          match Dnskey.name_key_of_string str_key with
-          | Error (`Msg msg) -> Logs.err (fun m -> m "couldn't parse dnskey: %s" msg) ; exit 64
-          | Ok (key_name, dnskey) ->
-            Logs.app (fun m -> m "inserting key for %a" Domain_name.pp key_name) ;
-            let up =
-              (* TODO domain_name API *)
-              if Astring.String.is_infix ~affix:"update" (Domain_name.to_string key_name) then
-                let zone = Domain_name.drop_label_exn ~amount:2 key_name in
-                Logs.app (fun m -> m "inserting zone %a update key" Domain_name.pp zone) ;
-                Domain_name.Map.add zone (key_name, dnskey) up
-              else
-                up
-            in
-            (up, (key_name, dnskey) :: keys))
-        (Domain_name.Map.empty, []) (Key_gen.dns_keys ())
+    let keyname, keyzone, dnskey =
+      match Dnskey.name_key_of_string (Key_gen.dns_key ()) with
+      | Error (`Msg msg) -> Logs.err (fun m -> m "couldn't parse dnskey: %s" msg) ; exit 64
+      | Ok (keyname, dnskey) ->
+        match Domain_name.find_label keyname (function "_update" -> true | _ -> false) with
+        | None -> Logs.err (fun m -> m "dnskey is not an update key") ; exit 64
+        | Some idx ->
+          let amount = succ idx in
+          let zone = Domain_name.(host_exn (drop_label_exn ~amount keyname)) in
+          Logs.app (fun m -> m "using key %a for zone %a" Domain_name.pp keyname Domain_name.pp zone);
+          keyname, zone, dnskey
     in
     let dns_server = Key_gen.dns_server () in
-    (* TODO rework to use ip from transfer key! *)
-    let dns_secondary =
-      Dns_server.Secondary.create ~primary:dns_server
-        ~a:[ Dns_server.Authentication.tsig_auth ]
-        ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign
-        ~rng:R.generate dns_keys
+    let dns_state = ref
+        (Dns_server.Secondary.create ~primary:dns_server ~rng:R.generate
+           ~tsig_verify:Dns_tsig.verify ~tsig_sign:Dns_tsig.sign [ keyname, dnskey ])
     in
-    (* TODO check that we've for each zone (of the secondary) an update key *)
-
     (* we actually need to find the zones for which we have update keys
        (secondary logic cares about zone transfer key) *)
     let flow = ref None in
@@ -152,7 +181,7 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                         Fmt.(list ~sep:(unit ",@ ") Domain_name.pp)
                         (Domain_name.Set.elements !in_flight)))
     in
-    let request_certificate server le ctx ~tlsa_name ~keyname dnskey csr =
+    let request_certificate server le ctx ~tlsa_name csr =
       if mem_flight tlsa_name then
         Logs.err (fun m -> m "request with %a already in-flight"
                      Domain_name.pp tlsa_name)
@@ -163,11 +192,10 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
         (* request new cert in async *)
         Lwt.async (fun () ->
             (* may get rid of it, once our AXFR with the challenge has been received by us, ask for the cert! :) *)
-            let sleep () = OS.Time.sleep_ns (Duration.of_sec 3) in
+            let sleep () = T.sleep_ns (Duration.of_sec 3) in
             let now = Ptime.v (P.now_d_ps ()) in
             let id = Randomconv.int16 R.generate in
-            let zone = Domain_name.host_exn @@ Domain_name.drop_label_exn ~amount:2 keyname in
-            let solver = Letsencrypt.Client.default_dns_solver id now send_dns ~recv:recv_dns ~keyname dnskey ~zone in
+            let solver = Letsencrypt.Client.default_dns_solver id now send_dns ~recv:recv_dns ~keyname ~zone:keyzone dnskey in
             Acme.sign_certificate ~ctx ~solver le sleep csr >>= function
             | Error (`Msg e) ->
               Logs.err (fun m -> m "error %s while signing %a" e Domain_name.pp tlsa_name);
@@ -202,7 +230,7 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                   in
                   let update = Domain_name.Map.singleton tlsa_name (remove @ [ add ]) in
                   (Domain_name.Map.empty, update)
-                and zone = Packet.Question.create zone Rr_map.Soa
+                and zone = Packet.Question.create keyzone Rr_map.Soa
                 and header = (Randomconv.int16 R.generate, Packet.Flags.empty)
                 in
                 let packet = Packet.create header zone (`Update update) in
@@ -258,6 +286,7 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
       Logs.info (fun m -> m "initialised lets encrypt");
 
       let on_update ~old:_ t =
+        dns_state := t;
         (* what to do here?
              foreach _changed_ TLSA record (can as well just do all for now)
              - if it starts with _letsencrypt._tcp (needs domain_name API)
@@ -269,33 +298,15 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                -> let zone = drop two labels
                -> lookup zone in update_keys, rinse repeat with zone dropping labels *)
         let name_of_interest name =
-          (* TODO domain_name API *)
-          let len = Domain_name.count_labels name in
-          if len < 2 then
+          if Domain_name.count_labels name < 2 then
             false
           else
-            let first = Domain_name.get_label_exn name 0
-            and second = Domain_name.get_label_exn name 1
-            in
-            Domain_name.(equal_label first "_letsencrypt" && equal_label second "_tcp")
-        and find_update_key name =
-          (* not clear whether this is worth it - the recursion below would as well drop them *)
-          let base = Domain_name.drop_label ~amount:2 name in
-          let rec find_key = function
-            | Error (`Msg msg) ->
-              Logs.err (fun m -> m "find_key for %a failed with %s" Domain_name.pp name msg);
-              None
-            | Ok name ->
-              match Domain_name.Map.find name update_keys with
-              | None -> find_key (Domain_name.drop_label name)
-              | Some key -> Some key
-          in
-          find_key base
+            Domain_name.(equal_label "_letsencrypt" (get_label_exn name 0) &&
+                         equal_label "_tcp" (get_label_exn name 1))
         in
         let trie = Dns_server.Secondary.data t in
         Dns_trie.fold Dns.Rr_map.Tlsa trie
           (fun name (_, tlsas) () ->
-             (* name of interest? *)
              if name_of_interest name then
                let csrs = Rr_map.Tlsa_set.filter interesting_csr tlsas
                and certs = Rr_map.Tlsa_set.filter interesting_cert tlsas
@@ -327,27 +338,21 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                      false
                  in
                  if interesting then
-                   (* update key exists? *)
-                   match find_update_key name with
-                   | None ->
-                     Logs.err (fun m -> m "couldn't find an update key for %a"
-                                  Domain_name.pp name)
-                   | Some (keyname, key) ->
-                     match X509.Signing_request.decode_der csr.Tlsa.data with
-                     | Error (`Msg str) -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
-                     | Ok csr ->
-                       match X509.(Distinguished_name.common_name Signing_request.((info csr).subject)) with
-                       | None -> Logs.err (fun m -> m "cannot find name of signing request")
-                       | Some nam ->
-                         begin match Domain_name.of_string nam with
-                           | Error (`Msg msg) -> Logs.err (fun m -> m "error %s while creating domain name of %s" msg nam)
-                           | Ok csr_name ->
-                             if not (Domain_name.is_subdomain ~domain:csr_name ~subdomain:name) then
-                               Logs.err (fun m -> m "csr cn %a isn't a superdomain of DNS %a"
-                                            Domain_name.pp csr_name Domain_name.pp name)
-                             else
-                               request_certificate t le ctx ~tlsa_name:name ~keyname key csr
-                         end
+                   match X509.Signing_request.decode_der csr.Tlsa.data with
+                   | Error (`Msg str) -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
+                   | Ok csr ->
+                     match X509.(Distinguished_name.common_name Signing_request.((info csr).subject)) with
+                     | None -> Logs.err (fun m -> m "cannot find name of signing request")
+                     | Some nam ->
+                       begin match Domain_name.of_string nam with
+                         | Error (`Msg msg) -> Logs.err (fun m -> m "error %s while creating domain name of %s" msg nam)
+                         | Ok csr_name ->
+                           if not (Domain_name.is_subdomain ~domain:csr_name ~subdomain:name) then
+                             Logs.err (fun m -> m "csr cn %a isn't a superdomain of DNS %a"
+                                          Domain_name.pp csr_name Domain_name.pp name)
+                           else
+                             request_certificate t le ctx ~tlsa_name:name csr
+                       end
                  else
                    Logs.debug (fun m -> m "not interesting (certs) %a" Domain_name.pp name)
                end
@@ -355,6 +360,9 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                Logs.debug (fun m -> m "name not interesting %a" Domain_name.pp name)) ();
         Lwt.return_unit
       in
-      DS.secondary ~on_update stack dns_secondary ;
+      Lwt.async (fun () ->
+          T.sleep_ns (Duration.of_day 1) >>= fun () ->
+          on_update ~old:(Dns_server.Secondary.data !dns_state) !dns_state);
+      DS.secondary ~on_update stack !dns_state ;
       S.listen stack
 end
