@@ -41,39 +41,6 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
     ((fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Private),
      (fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Full_certificate))
 
-  let hostnames_of_csr csr =
-    let open X509.Signing_request in
-    let info = info csr in
-    let subject_alt_names =
-      match Ext.(find Extensions info.extensions) with
-      | Some exts ->
-        begin match X509.Extension.(find Subject_alt_name exts) with
-          | None -> Domain_name.Set.empty
-          | Some (_, san) -> match X509.General_name.(find DNS san) with
-            | None -> Domain_name.Set.empty
-            | Some names -> List.fold_left (fun acc name ->
-                match Domain_name.of_string name with
-                | Ok n -> Domain_name.Set.add n acc
-                | Error `Msg e ->
-                  Logs.warn (fun m -> m "name %s not a domain name: %s" name e);
-                  acc)
-                Domain_name.Set.empty names
-      end
-    | _ -> Domain_name.Set.empty
-  in
-  if Domain_name.Set.is_empty subject_alt_names then
-    begin match X509.Distinguished_name.common_name info.subject with
-      | None -> Domain_name.Set.empty
-      | Some x ->
-        match Domain_name.of_string x with
-        | Ok n -> Domain_name.Set.singleton n
-        | Error `Msg e ->
-          Logs.warn (fun m -> m "common name %s not a domain name %s" x e);
-          Domain_name.Set.empty
-    end
-  else
-    subject_alt_names
-
   let valid_and_matches_csr csr cert =
     (* parse csr, parse cert: match public keys, match validity of cert *)
     match
@@ -90,11 +57,11 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
       and cert_key = X509.Public_key.id (X509.Certificate.public_key cert)
       in
       let hostnames = X509.Certificate.hostnames cert
-      and csr_names = hostnames_of_csr csr
+      and csr_names = X509.Signing_request.hostnames csr
       and valid = Ptime.is_later until ~than:now_plus_two_weeks
       and key_eq = Cstruct.equal csr_key cert_key
       in
-      begin match valid, key_eq, Domain_name.Set.equal hostnames csr_names with
+      begin match valid, key_eq, X509.Certificate.Host_set.equal hostnames csr_names with
         | true, true, true -> true
         | false, _, _ ->
           Logs.err (fun m -> m "%a is not later than %a"
@@ -104,9 +71,16 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
           Logs.err (fun m -> m "public keys do not match") ;
           false
         | _, _, false ->
+          let pp_hostnames ppf hosts =
+            let str_wild ppf = function
+              | `Wildcard -> Fmt.string ppf "*."
+              | `Strict -> ()
+            in
+            Fmt.(list ~sep:(unit ", ") (pair str_wild Domain_name.pp)) ppf
+              (X509.Certificate.Host_set.elements hosts)
+          in
           Logs.err (fun m -> m "csr names %a do not match cert names %a"
-                       Fmt.(list ~sep:(unit ", ") Domain_name.pp) (Domain_name.Set.elements csr_names)
-                       Fmt.(list ~sep:(unit ", ") Domain_name.pp) (Domain_name.Set.elements hostnames));
+                       pp_hostnames csr_names pp_hostnames hostnames);
           false
       end
     | _ ->
