@@ -35,7 +35,7 @@ let keys = Key.[
 
 let packages =
   [
-    package ~min:"0.8.1" "x509" ;
+    package ~min:"0.9.0" "x509" ;
     package "duration" ;
     package "logs" ;
     package "cohttp-mirage" ;
