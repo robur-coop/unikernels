@@ -53,25 +53,58 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
         List.map (fun (n, v) -> Domain_name.drop_label_exn ~rev:true n, v) keys,
         data
       in
-      let parse_and_maybe_add trie zone data =
+      let zones = Domain_name.Set.of_list (fst (List.split data)) in
+      let parse_and_maybe_add trie zone data : (Dns_trie.t, [> `Msg of string ]) result =
         Logs.info (fun m -> m "parsing %a: %s" Domain_name.pp zone data);
         Dns_zone.parse data >>= fun rrs ->
-        let tst subdomain = Domain_name.is_subdomain ~domain:zone ~subdomain in
-        if not (Domain_name.Map.for_all (fun name _ -> tst name) rrs) then
-          (* how does this behave in respect to delegation and glue?
-             should be fine, if glue is needed it'll be a subdomain of zone *)
-          Error (`Msg (Fmt.strf "an entry of %a is not in its zone, won't handle this@.%a"
-                         Domain_name.pp zone Dns.Name_rr_map.pp rrs))
-        else
-          let trie' = Dns_trie.insert_map rrs trie in
-          Rresult.R.reword_error
-            (fun e -> `Msg (Fmt.to_to_string Dns_trie.pp_zone_check e))
-            (Dns_trie.check trie') >>= fun () ->
-          (* this prints all zones of the trie' *)
-          Dns_server.text zone trie' >>| fun zone_data ->
-          Logs.info (fun m -> m "loade zone %a" Domain_name.pp zone);
-          Logs.info (fun m -> m "loaded zone@.%s" zone_data);
-          trie'
+        (* we take all resource records within the zone *)
+        let in_zone subdomain = Domain_name.is_subdomain ~domain:zone ~subdomain in
+        let zone_rrs = Domain_name.Map.filter (fun name _ -> in_zone name) rrs in
+        let trie' = Dns_trie.insert_map zone_rrs trie in
+        Rresult.R.reword_error
+          (fun _ -> `Msg (Fmt.strf "no SOA for %a" Domain_name.pp zone))
+          (Dns_trie.lookup zone Dns.Rr_map.Soa trie') >>= fun _ ->
+        Rresult.R.reword_error
+          (fun e -> `Msg (Fmt.to_to_string Dns_trie.pp_zone_check e))
+          (Dns_trie.check trie') >>= fun () ->
+        (* collect potential glue:
+           - find NS entries for zone
+           - find A records for name servers in other zones
+             (Dns_trie.check ensures that the NS in zone have an address record)
+           - only if the other names are not in zones, they are picked from
+             this zone file *)
+        Rresult.R.reword_error
+          (fun e -> `Msg (Fmt.to_to_string Dns_trie.pp_e e))
+          (Dns_trie.lookup zone Dns.Rr_map.Ns trie') >>= fun (_, name_servers) ->
+        let not_in_zones nameserver =
+          let in_this_zone = in_zone nameserver
+          and in_other_zones =
+            if Domain_name.Set.exists
+                (fun domain -> Domain_name.is_subdomain ~domain ~subdomain:nameserver)
+                zones
+            then begin
+              Logs.info (fun m -> m "ignoring glue for NS %a in %a since authoritative for that zone"
+                            Domain_name.pp nameserver Domain_name.pp zone);
+              true
+            end else false
+          in
+          not (in_this_zone || in_other_zones)
+        in
+        let need_glue = Domain_name.Host_set.filter not_in_zones name_servers in
+        let trie' =
+          Domain_name.Host_set.fold (fun ns trie ->
+              match Dns.Name_rr_map.find (Domain_name.raw ns) Dns.Rr_map.A rrs with
+              | Some rr -> Dns_trie.insert ns Dns.Rr_map.A rr trie
+              | None ->
+                Logs.warn (fun m -> m "unknown IP for NS %a, it won't get notified"
+                              Domain_name.pp ns);
+                trie) need_glue trie'
+        in
+        (* this prints all zones of the trie' *)
+        Dns_server.text zone trie' >>| fun zone_data ->
+        Logs.info (fun m -> m "loade zone %a" Domain_name.pp zone);
+        Logs.info (fun m -> m "loaded zone@.%s" zone_data);
+        trie'
       in
       List.fold_left (fun acc (zone, data) ->
           acc >>= fun trie ->
