@@ -33,14 +33,6 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
        right key)
  *)
 
-  let interesting_csr, interesting_cert =
-    let tlsa_interesting t =
-      t.Tlsa.matching_type = Tlsa.No_hash &&
-      t.Tlsa.cert_usage = Tlsa.Domain_issued_certificate
-    in
-    ((fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Private),
-     (fun t -> tlsa_interesting t && t.Tlsa.selector = Tlsa.Full_certificate))
-
   let valid_and_matches_csr csr cert =
     (* parse csr, parse cert: match public keys, match validity of cert *)
     match
@@ -62,14 +54,14 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
       and key_eq = Cstruct.equal csr_key cert_key
       in
       begin match valid, key_eq, X509.Certificate.Host_set.equal hostnames csr_names with
-        | true, true, true -> true
+        | true, true, true -> None
         | false, _, _ ->
           Logs.err (fun m -> m "%a is not later than %a"
-                       (Ptime.pp_human ()) until (Ptime.pp_human ()) now_plus_two_weeks) ;
-          false
+                       (Ptime.pp_human ()) until (Ptime.pp_human ()) now_plus_two_weeks);
+          Some csr
         | _, false, _ ->
-          Logs.err (fun m -> m "public keys do not match") ;
-          false
+          Logs.err (fun m -> m "public keys do not match");
+          Some csr
         | _, _, false ->
           let pp_hostnames ppf hosts =
             let str_wild ppf = function
@@ -81,11 +73,51 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
           in
           Logs.err (fun m -> m "csr names %a do not match cert names %a"
                        pp_hostnames csr_names pp_hostnames hostnames);
-          false
+          Some csr
       end
-    | _ ->
-      Logs.err (fun m -> m "couldn't parse csr or cert, returning false from matches") ;
-      false
+    | Ok csr, Error `Msg e ->
+      Logs.err (fun m -> m "couldn't parse certificate %s, requesting new one" e);
+      Some csr
+    | Error `Msg e, _ ->
+      Logs.err (fun m -> m "couldn't parse csr %s, nothing to see here" e) ;
+      None
+
+  let contains_csr_without_certificate name tlsas =
+    let csrs = Rr_map.Tlsa_set.filter Dns_certify.is_csr tlsas in
+    if Rr_map.Tlsa_set.cardinal csrs <> 1 then begin
+      Logs.warn (fun m -> m "no or multiple signing requests found for %a (skipping)"
+                    Domain_name.pp name);
+      None
+    end else
+      let csr = Rr_map.Tlsa_set.choose csrs in
+      let certs = Rr_map.Tlsa_set.filter Dns_certify.is_certificate tlsas in
+      match Rr_map.Tlsa_set.cardinal certs with
+      | 0 ->
+        Logs.warn (fun m -> m "no certificate found for %a, requesting"
+                      Domain_name.pp name);
+        begin match X509.Signing_request.decode_der csr.Tlsa.data with
+          | Ok csr -> Some csr
+          | Error `Msg e ->
+            Logs.warn (fun m -> m "couldn't parse CSR %s" e);
+            None
+        end
+      | 1 ->
+        begin
+          let cert = Rr_map.Tlsa_set.choose certs in
+          match valid_and_matches_csr csr cert with
+          | None ->
+            Logs.debug (fun m -> m "certificate already exists for signing request %a, skipping"
+                           Domain_name.pp name);
+            None
+          | Some csr ->
+            Logs.warn (fun m -> m "certificate not valid or doesn't match signing request %a, requesting"
+                          Domain_name.pp name);
+            Some csr
+        end
+      | _ ->
+        Logs.err (fun m -> m "multiple certificates found for %a, skipping"
+                     Domain_name.pp name);
+        None
 
   let start _random _pclock _mclock _ stack res ctx _ =
     let keyname, keyzone, dnskey =
@@ -166,17 +198,19 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
         (* request new cert in async *)
         Lwt.async (fun () ->
             (* may get rid of it, once our AXFR with the challenge has been received by us, ask for the cert! :) *)
-            let sleep () = T.sleep_ns (Duration.of_sec 3) in
-            let now = Ptime.v (P.now_d_ps ()) in
+            let sleep n = T.sleep_ns (Duration.of_sec n) in
+            let now () = Ptime.v (P.now_d_ps ()) in
             let id = Randomconv.int16 R.generate in
-            let solver = Letsencrypt.Client.default_dns_solver id now send_dns ~recv:recv_dns ~keyname ~zone:keyzone dnskey in
-            Acme.sign_certificate ~ctx ~solver le sleep csr >>= function
+            let solver = Letsencrypt.Client.nsupdate ~proto:`Tcp id now send_dns ~recv:recv_dns ~keyname dnskey ~zone:keyzone in
+            Acme.sign_certificate ~ctx solver le sleep csr >>= function
             | Error (`Msg e) ->
               Logs.err (fun m -> m "error %s while signing %a" e Domain_name.pp tlsa_name);
               remove_flight tlsa_name;
               Lwt.return_unit
-            | Ok cert ->
-              let certificate = X509.Certificate.encode_der cert in
+            | Ok [] ->
+              Logs.err (fun m -> m "received an empty certificate chain for %a" Domain_name.pp tlsa_name);
+              Lwt.return_unit
+            | Ok (cert::cas) ->
               Logs.info (fun m -> m "certificate received for %a" Domain_name.pp tlsa_name);
               match Dns_trie.lookup tlsa_name Rr_map.Tlsa (Dns_server.Secondary.data server) with
               | Error e ->
@@ -185,22 +219,37 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                 remove_flight tlsa_name;
                 Lwt.return_unit
               | Ok (_, tlsas) ->
+                (* from tlsas, we need to remove the end entity certificates *)
+                (* also potentially all CAs that are not part of cas *)
+                (* we should add the new certificate and potentially CAs *)
+                let cas' = List.map X509.Certificate.encode_der cas in
+                let to_remove, cas_not_to_add =
+                  Rr_map.Tlsa_set.fold (fun tlsa (to_rm, not_to_add) ->
+                      if Dns_certify.is_ca_certificate tlsa then
+                        if List.mem tlsa.Tlsa.data cas' then
+                          to_rm, tlsa.Tlsa.data :: not_to_add
+                        else
+                          tlsa :: to_rm, not_to_add
+                      else if Dns_certify.is_certificate tlsa then
+                        tlsa :: to_rm, not_to_add
+                      else
+                        to_rm, not_to_add)
+                    tlsas ([], [])
+                in
                 let update =
                   let add =
-                    let tlsa = Tlsa.{ cert_usage = Domain_issued_certificate ;
-                                      selector = Full_certificate ;
-                                      matching_type = No_hash ;
-                                      data = certificate }
+                    let tlsas =
+                      let cas_to_add =
+                        List.filter (fun ca -> not (List.mem ca cas_not_to_add)) cas'
+                      in
+                      let cas = List.map Dns_certify.ca_certificate cas_to_add in
+                      Rr_map.Tlsa_set.of_list (Dns_certify.certificate cert :: cas)
                     in
-                    Packet.Update.Add Rr_map.(B (Tlsa, (3600l, Tlsa_set.singleton tlsa)))
+                    Packet.Update.Add Rr_map.(B (Tlsa, (3600l, tlsas)))
                   and remove =
-                    Rr_map.Tlsa_set.fold
-                      (fun tlsa acc ->
-                         if interesting_cert tlsa then
-                           Packet.Update.Remove_single Rr_map.(B (Tlsa, (0l, Tlsa_set.singleton tlsa))) :: acc
-                         else
-                           acc)
-                      tlsas []
+                    List.map (fun tlsa ->
+                        Packet.Update.Remove_single Rr_map.(B (Tlsa, (0l, Tlsa_set.singleton tlsa))))
+                      to_remove
                   in
                   let update = Domain_name.Map.singleton tlsa_name (remove @ [ add ]) in
                   (Domain_name.Map.empty, update)
@@ -208,27 +257,30 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                 and header = (Randomconv.int16 R.generate, Packet.Flags.empty)
                 in
                 let packet = Packet.create header zone (`Update update) in
-                match Dns_tsig.encode_and_sign ~proto:`Tcp packet now dnskey keyname with
+                match Dns_tsig.encode_and_sign ~proto:`Tcp packet (now ()) dnskey keyname with
                 | Error s ->
                   remove_flight tlsa_name;
-                  Logs.err (fun m -> m "Error %a while encoding and signing %a" Dns_tsig.pp_s s Domain_name.pp tlsa_name);
+                  Logs.err (fun m -> m "Error %a while encoding and signing %a"
+                               Dns_tsig.pp_s s Domain_name.pp tlsa_name);
                   Lwt.return_unit
                 | Ok (data, mac) ->
                   send_dns data >>= function
                   | Error (`Msg e) ->
                     (* TODO: should retry DNS send *)
                     remove_flight tlsa_name;
-                    Logs.err (fun m -> m "error %s while sending nsupdate %a" e Domain_name.pp tlsa_name);
+                    Logs.err (fun m -> m "error %s while sending nsupdate %a"
+                                 e Domain_name.pp tlsa_name);
                     Lwt.return_unit
                   | Ok () ->
                     recv_dns () >|= function
                     | Error (`Msg e) ->
                       (* TODO: should retry DNS send *)
                       remove_flight tlsa_name;
-                      Logs.err (fun m -> m "error %s while reading DNS %a" e Domain_name.pp tlsa_name)
+                      Logs.err (fun m -> m "error %s while reading DNS %a"
+                                   e Domain_name.pp tlsa_name)
                     | Ok data ->
                       remove_flight tlsa_name;
-                      match Dns_tsig.decode_and_verify now dnskey keyname ~mac data with
+                      match Dns_tsig.decode_and_verify (now ()) dnskey keyname ~mac data with
                       | Error e ->
                         Logs.err (fun m -> m "error %a while decoding nsupdate answer %a"
                                      Dns_tsig.pp_e e Domain_name.pp tlsa_name)
@@ -238,23 +290,24 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                         | Error e ->
                           (* TODO: if badtime, adjust our time (to the other time) and resend ;) *)
                           Logs.err (fun m -> m "invalid reply %a for %a, got %a"
-                                       Packet.pp_mismatch e Packet.pp packet Packet.pp res))
+                                       Packet.pp_mismatch e Packet.pp packet
+                                       Packet.pp res))
       end
     in
 
     let account_key = gen_rsa (Key_gen.account_key_seed ()) in
     Conduit_mirage.with_tls ctx >>= fun ctx ->
     let ctx = Cohttp_mirage.Client.ctx res ctx in
-    let directory =
+    let endpoint =
       if Key_gen.production () then begin
         Logs.warn (fun m -> m "production environment - take care what you do");
-        Letsencrypt.letsencrypt_url
+        Letsencrypt.letsencrypt_production_url
       end else begin
         Logs.warn (fun m -> m "staging environment - test use only");
         Letsencrypt.letsencrypt_staging_url
       end
     in
-    Acme.initialise ~ctx ~directory account_key >>= function
+    Acme.initialise ~ctx ~endpoint account_key >>= function
     | Error (`Msg e) -> Logs.err (fun m -> m "error %s" e) ; Lwt.return_unit
     | Ok le ->
       Logs.info (fun m -> m "initialised lets encrypt");
@@ -271,65 +324,13 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
              -> for a TLSA (_letsencrypt._tcp.<host>):
                -> let zone = drop two labels
                -> lookup zone in update_keys, rinse repeat with zone dropping labels *)
-        let name_of_interest name =
-          if Domain_name.count_labels name < 2 then
-            false
-          else
-            Domain_name.(equal_label "_letsencrypt" (get_label_exn name 0) &&
-                         equal_label "_tcp" (get_label_exn name 1))
-        in
         let trie = Dns_server.Secondary.data t in
         Dns_trie.fold Dns.Rr_map.Tlsa trie
           (fun name (_, tlsas) () ->
-             if name_of_interest name then
-               let csrs = Rr_map.Tlsa_set.filter interesting_csr tlsas
-               and certs = Rr_map.Tlsa_set.filter interesting_cert tlsas
-               in
-               if Rr_map.Tlsa_set.cardinal csrs <> 1 then
-                 Logs.warn (fun m -> m "no or multiple signing requests found for %a (skipping)"
-                               Domain_name.pp name)
-               else begin
-                 let csr = Rr_map.Tlsa_set.choose csrs in
-                 let interesting = match Rr_map.Tlsa_set.cardinal certs with
-                   | 0 ->
-                     Logs.warn (fun m -> m "no certificate found for %a, requesting"
-                                   Domain_name.pp name);
-                     true
-                   | 1 ->
-                     let cert = Rr_map.Tlsa_set.choose certs in
-                     if valid_and_matches_csr csr cert then begin
-                       Logs.debug (fun m -> m "certificate already exists for signing request %a, skipping"
-                                      Domain_name.pp name);
-                       false
-                     end else begin
-                       Logs.warn (fun m -> m "certificate not valid or doesn't match signing request %a, requesting"
-                                     Domain_name.pp name);
-                       true
-                     end
-                   | _ ->
-                     Logs.err (fun m -> m "multiple certificates found for %a, skipping"
-                                  Domain_name.pp name);
-                     false
-                 in
-                 if interesting then
-                   match X509.Signing_request.decode_der csr.Tlsa.data with
-                   | Error (`Msg str) -> Logs.err (fun m -> m "couldn't parse signing request: %s" str)
-                   | Ok csr ->
-                     match X509.(Distinguished_name.common_name Signing_request.((info csr).subject)) with
-                     | None -> Logs.err (fun m -> m "cannot find name of signing request")
-                     | Some nam ->
-                       begin match Domain_name.of_string nam with
-                         | Error (`Msg msg) -> Logs.err (fun m -> m "error %s while creating domain name of %s" msg nam)
-                         | Ok csr_name ->
-                           if not (Domain_name.is_subdomain ~domain:csr_name ~subdomain:name) then
-                             Logs.err (fun m -> m "csr cn %a isn't a superdomain of DNS %a"
-                                          Domain_name.pp csr_name Domain_name.pp name)
-                           else
-                             request_certificate t le ctx ~tlsa_name:name csr
-                       end
-                 else
-                   Logs.debug (fun m -> m "not interesting (certs) %a" Domain_name.pp name)
-               end
+             if Dns_certify.is_name name then
+               match contains_csr_without_certificate name tlsas with
+               | None -> Logs.debug (fun m -> m "not interesting (does not contain CSR without valid certificate) %a" Domain_name.pp name)
+               | Some csr -> request_certificate t le ctx ~tlsa_name:name csr
              else
                Logs.debug (fun m -> m "name not interesting %a" Domain_name.pp name)) ();
         Lwt.return_unit
