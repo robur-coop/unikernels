@@ -64,7 +64,7 @@ module Main (Keys : Mirage_kv.RO) (Pclock : Mirage_clock.PCLOCK) (Public : Mirag
     X509.certificate kv `Default >|= fun cert ->
     Tls.Config.server ~certificates:(`Single cert) ()
 
-  let start kv _ pub priv _ =
+  let start kv _ pub priv =
     let frontend_port = Key_gen.frontend_port () in
     tls_init kv >>= fun config ->
     let priv_tcp = Private.tcpv4 priv in

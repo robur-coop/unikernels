@@ -15,7 +15,6 @@ let dns_handler =
   in
   foreign
     ~keys:[Key.abstract hostname]
-    ~deps:[abstract nocrypto]
     ~packages
     "Unikernel.Main" (random @-> mclock @-> stackv4 @-> job)
 

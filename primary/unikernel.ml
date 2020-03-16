@@ -53,7 +53,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
     let t = insert (ptr_name "7") Ptr (ttl, h "certificate") t in
     t
 
-  let start _rng _pclock _mclock _ s _ =
+  let start _rng _pclock _mclock _ s =
     let trie = data in
     (match Dns_trie.check trie with
      | Ok () -> ()

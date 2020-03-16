@@ -2,7 +2,7 @@
 module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) = struct
   module D = Dns_resolver_mirage.Make(R)(P)(M)(T)(S)
 
-  let start _r _pclock _mclock _ s _ =
+  let start _r _pclock _mclock _ s =
     let trie =
       let name = Domain_name.of_string_exn "resolver"
       and ip = Key_gen.resolver ()

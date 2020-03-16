@@ -18,9 +18,8 @@ let certs = generic_kv_ro "tls"
 
 let main =
   foreign
-    ~deps:[ abstract nocrypto ]
     ~keys:[ Key.abstract backend_ip ; Key.abstract backend_port ; Key.abstract frontend_port ]
-    ~packages:[ package ~sublibs:["mirage"] "tls" ]
+    ~packages:[ package "tls-mirage" ]
     "Unikernel.Main"
     (kv_ro @-> pclock @-> stackv4 @-> stackv4 @-> job)
 

@@ -10,12 +10,10 @@ let dns_handler =
       package "logs" ;
       package ~sublibs:[ "zone" ; "mirage" ] "dns-server";
       package "dns-tsig";
-      package "nocrypto";
       package ~min:"2.0.0" "mirage-kv";
     ]
   in
   foreign
-    ~deps:[abstract nocrypto]
     ~packages
     "Unikernel.Main"
     (random @-> pclock @-> mclock @-> time @-> stackv4 @-> kv_ro @-> job)

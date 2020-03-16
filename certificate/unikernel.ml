@@ -53,14 +53,13 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
     Logs.app (fun m -> m "certificate chain:@.%s" certs);
     Logs.app (fun m -> m "private key:@.%s" key)
 
-  let start _random _pclock _mclock _ stack _ =
+  let start _random _pclock _mclock _ stack =
     let hostname = Domain_name.(host_exn (of_string_exn (Key_gen.hostname ()))) in
     let additional_hostnames =
       List.map (fun n -> Domain_name.(host_exn (of_string_exn n)))
         (Astring.String.cuts ~empty:false ~sep:"," (Key_gen.additional ()))
     in
-    let ca = if Key_gen.production () then `Production else `Staging in
-    D.retrieve_certificate ~ca stack ~dns_key:(Key_gen.dns_key ())
+    D.retrieve_certificate stack ~dns_key:(Key_gen.dns_key ())
       ~hostname ~additional_hostnames ?key_seed:(Key_gen.key_seed ())
       (Key_gen.dns_server ()) (Key_gen.dns_port ()) >>= function
     | Error (`Msg msg) ->
