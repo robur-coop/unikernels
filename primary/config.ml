@@ -12,12 +12,10 @@ let dns_handler =
       package "logs" ;
       package ~min:"4.3.0" ~sublibs:[ "mirage" ] "dns-server";
       package "dns-tsig";
-      package "nocrypto"
     ]
   in
   foreign
     ~keys:[Key.abstract axfr]
-    ~deps:[abstract nocrypto]
     ~packages
     "Unikernel.Main"
     (random @-> pclock @-> mclock @-> time @-> stackv4 @-> job)

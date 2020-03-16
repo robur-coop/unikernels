@@ -30,13 +30,9 @@ let key_seed =
   let doc = Key.Arg.info ~doc:"private key seed" ["key-seed"] in
   Key.(create "key-seed" Arg.(opt (some string) None doc))
 
-let production =
-  let doc = Key.Arg.info ~doc:"Use the production let's encrypt servers" ["production"] in
-  Key.(create "production" Arg.(flag doc))
-
 let keys = Key.[
     abstract port ; abstract dns_key ; abstract dns_server ; abstract dns_port ;
-    abstract hostname ; abstract additional ; abstract key_seed ; abstract production
+    abstract hostname ; abstract additional ; abstract key_seed
   ]
 
 let packages =
@@ -46,11 +42,11 @@ let packages =
     package "randomconv" ;
     package "logs" ;
     package ~sublibs:[ "mirage" ] "dns-certify";
-    package ~sublibs:[ "mirage" ] "tls" ;
+    package "tls-mirage" ;
   ]
 
 let main =
-  foreign ~keys ~packages ~deps:[abstract nocrypto] "Unikernel.Main"
+  foreign ~keys ~packages "Unikernel.Main"
     (random @-> pclock @-> mclock @-> time @-> stackv4 @-> job)
 
 let () =

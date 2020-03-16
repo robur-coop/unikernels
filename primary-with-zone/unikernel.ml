@@ -5,7 +5,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
 
   module D = Dns_server_mirage.Make(P)(M)(T)(S)
 
-  let start _rng _pclock _mclock _ s kv _ =
+  let start _rng _pclock _mclock _ s kv =
     KV.get kv (Mirage_kv.Key.v "zone") >>= function
     | Error e ->
       Logs.err (fun m -> m "couldn't get zone file %a" KV.pp_error e) ; exit 64

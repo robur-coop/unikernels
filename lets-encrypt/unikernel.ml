@@ -12,8 +12,8 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
 
   let gen_rsa seed =
     let seed = Cstruct.of_string seed in
-    let g = Nocrypto.Rng.(create ~seed (module Generators.Fortuna)) in
-    Nocrypto.Rsa.generate ~g 4096
+    let g = Mirage_crypto_rng.(create ~seed (module Mirage_crypto_rng.Fortuna)) in
+    Mirage_crypto_pk.Rsa.generate ~g ~bits:4096 ()
 
   (* act as a hidden dns secondary and receive notifies, sweep through the zone for signing requests without corresponding (non-expired) certificate
 
@@ -53,7 +53,7 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
       and valid = Ptime.is_later until ~than:now_plus_two_weeks
       and key_eq = Cstruct.equal csr_key cert_key
       in
-      begin match valid, key_eq, X509.Certificate.Host_set.equal hostnames csr_names with
+      begin match valid, key_eq, X509.Host.Set.equal hostnames csr_names with
         | true, true, true -> None
         | false, _, _ ->
           Logs.err (fun m -> m "%a is not later than %a"
@@ -63,16 +63,8 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
           Logs.err (fun m -> m "public keys do not match");
           Some csr
         | _, _, false ->
-          let pp_hostnames ppf hosts =
-            let str_wild ppf = function
-              | `Wildcard -> Fmt.string ppf "*."
-              | `Strict -> ()
-            in
-            Fmt.(list ~sep:(unit ", ") (pair str_wild Domain_name.pp)) ppf
-              (X509.Certificate.Host_set.elements hosts)
-          in
           Logs.err (fun m -> m "csr names %a do not match cert names %a"
-                       pp_hostnames csr_names pp_hostnames hostnames);
+                       X509.Host.Set.pp csr_names X509.Host.Set.pp hostnames);
           Some csr
       end
     | Ok csr, Error `Msg e ->
@@ -201,7 +193,7 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
             let sleep n = T.sleep_ns (Duration.of_sec n) in
             let now () = Ptime.v (P.now_d_ps ()) in
             let id = Randomconv.int16 R.generate in
-            let solver = Letsencrypt.Client.nsupdate ~proto:`Tcp id now send_dns ~recv:recv_dns ~keyname dnskey ~zone:keyzone in
+            let solver = Letsencrypt.Client.nsupdate ~proto:`Tcp id now send_dns ~recv:recv_dns ~zone:keyzone ~keyname dnskey in
             Acme.sign_certificate ~ctx solver le sleep csr >>= function
             | Error (`Msg e) ->
               Logs.err (fun m -> m "error %s while signing %a" e Domain_name.pp tlsa_name);

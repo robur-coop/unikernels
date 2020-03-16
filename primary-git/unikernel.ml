@@ -54,7 +54,11 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
         data
       in
       let zones = Domain_name.Set.of_list (fst (List.split data)) in
-      let parse_and_maybe_add trie zone data : (Dns_trie.t, [> `Msg of string ]) result =
+      (* TODO in case the zone actually is newer, verify that SOA serial increased
+         (otherwise no notification, but primary and secondary serve different
+         data under same SOA serial --> this is bad!)
+      *)
+      let parse_and_maybe_add trie zone data =
         Logs.info (fun m -> m "parsing %a: %s" Domain_name.pp zone data);
         Dns_zone.parse data >>= fun rrs ->
         (* we take all resource records within the zone *)
@@ -184,7 +188,7 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
 
   module D = Dns_server_mirage.Make(P)(M)(T)(S)
 
-  let start _rng _pclock _mclock _time s resolver conduit _ =
+  let start _rng _pclock _mclock _time s resolver conduit =
     connect_store resolver conduit >>= fun (store, upstream) ->
     Logs.info (fun m -> m "i have now master!");
     load_git store upstream >>= function

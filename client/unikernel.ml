@@ -6,7 +6,7 @@ module Main (R : Mirage_random.S) (M : Mirage_clock.MCLOCK) (S : Mirage_stack.V4
 
   module DNS = Dns_client_mirage.Make(R)(M)(S)
 
-  let start _ _ s _ =
+  let start _ _ s =
     let t = DNS.create s in
     let host = Domain_name.(host_exn (of_string_exn (Key_gen.hostname ()))) in
     DNS.gethostbyname t host >|= function

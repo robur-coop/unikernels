@@ -2,7 +2,7 @@
 module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) = struct
   module D = Dns_server_mirage.Make(P)(M)(T)(S)
 
-  let start _rng _pclock _mclock _ s _ =
+  let start _rng _pclock _mclock _ s =
     let keys = List.fold_left (fun acc str ->
         match Dns.Dnskey.name_key_of_string str with
         | Error (`Msg msg) -> Logs.err (fun m -> m "key parse error %s" msg) ; exit 64

@@ -15,13 +15,11 @@ let dns_handler =
     package "logs" ;
     package ~min:"4.3.0" ~sublibs:["mirage"; "zone"] "dns-server";
     package "dns-tsig";
-    package "nocrypto" ;
     package ~min:"2.0.0" "irmin-mirage";
     package ~min:"2.0.0" "irmin-mirage-git";
     package "conduit-mirage";
   ] in
   foreign
-    ~deps:[abstract nocrypto]
     ~keys:[Key.abstract remote_k ; Key.abstract axfr]
     ~packages
     "Unikernel.Main"

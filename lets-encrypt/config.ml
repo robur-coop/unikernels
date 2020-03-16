@@ -39,7 +39,7 @@ let packages =
     package "duration" ;
     package "logs" ;
     package "cohttp-mirage" ;
-    package ~min:"0.2.0" "letsencrypt" ;
+    package ~min:"0.2.1" "letsencrypt" ;
     package "conduit-mirage" ;
     package "dns-tsig";
     package "dns-certify";
@@ -49,7 +49,7 @@ let packages =
 ]
 
 let client =
-  foreign ~deps:[abstract nocrypto] ~keys ~packages "Unikernel.Client" @@
+  foreign ~keys ~packages "Unikernel.Client" @@
   random @-> pclock @-> mclock @-> time @-> stackv4 @-> resolver @-> conduit @-> job
 
 let () =
