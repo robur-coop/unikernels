@@ -111,7 +111,7 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
                      Domain_name.pp name);
         None
 
-  let start _random _pclock _mclock _ stack res ctx _ =
+  let start _random _pclock _mclock _ stack res ctx =
     let keyname, keyzone, dnskey =
       match Dnskey.name_key_of_string (Key_gen.dns_key ()) with
       | Error (`Msg msg) -> Logs.err (fun m -> m "couldn't parse dnskey: %s" msg) ; exit 64
