@@ -16,7 +16,6 @@ ifeq ($(MODE),unix)
 UNIKERNELS += secondary-git
 endif
 
-MIRAGE_FLAGS += --prng fortuna
 MODE ?= "unix"
 
 BUILD  = $(patsubst %, %-build, $(UNIKERNELS))
