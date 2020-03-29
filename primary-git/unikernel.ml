@@ -1,5 +1,7 @@
 (* (c) 2017, 2018 Hannes Mehnert, all rights reserved *)
 
+(* TODO: instead of storing all zones flat, maybe put them into subdirectories *)
+
 open Lwt.Infix
 
 module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MCLOCK) (T : Mirage_time.S) (S : Mirage_stack.V4) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S) = struct
@@ -21,7 +23,6 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
     | Error (`Conflict msg) -> Logs.warn (fun m -> m "pull conflict %s" msg)
 
   let load_zones store upstream =
-    (* TODO recurse over directories (io/nqsb, org/openmirage) for zones *)
     pull_store store upstream >>= fun () ->
     Store.list store [] >>= fun files ->
     Lwt_list.fold_left_s (fun acc (name, kind) ->
@@ -31,12 +32,11 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
           | `Node, _ -> Lwt.return (Error (name, "got node, expected contents"))
           | `Contents, Error (`Msg e) -> Lwt.return (Error (name, "not a domain name " ^ e))
           | `Contents, Ok zone ->
-            (* TODO directory traversal for zones *)
             Store.get store [name] >|= fun data ->
             Ok ((zone, data) :: acc))
       (Ok []) files
 
-  let load_git store upstream =
+  let load_git old_trie store upstream =
     load_zones store upstream >|= function
     | Error (ctx, e) -> Error (`Msg ("while loading zones from git: " ^ ctx ^ " " ^ e))
     | Ok bindings ->
@@ -54,10 +54,6 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
         data
       in
       let zones = Domain_name.Set.of_list (fst (List.split data)) in
-      (* TODO in case the zone actually is newer, verify that SOA serial increased
-         (otherwise no notification, but primary and secondary serve different
-         data under same SOA serial --> this is bad!)
-      *)
       let parse_and_maybe_add trie zone data =
         Logs.info (fun m -> m "parsing %a: %s" Domain_name.pp zone data);
         Dns_zone.parse data >>= fun rrs ->
@@ -71,6 +67,28 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
         Rresult.R.reword_error
           (fun e -> `Msg (Fmt.to_to_string Dns_trie.pp_zone_check e))
           (Dns_trie.check trie') >>= fun () ->
+        (match old_trie with
+         | None -> Ok ()
+         | Some old_trie ->
+           match Dns_trie.entries zone old_trie, Dns_trie.lookup zone Dns.Rr_map.Soa trie' with
+           | Ok (old_soa, old_entries), Ok soa ->
+             (* good if old_soa = soa && old_entries ++ old_soa == zone_rrs
+                or soa is newer than old_soa *)
+             (* TODO error recovery could be to increment the SOA serial, followed
+                by a push to git (the other errors above and below can't be fixed
+                automatically - thus a git pull can always fail :/) *)
+             if Dns.Soa.newer ~old:old_soa soa then
+               Ok ()
+             else if
+               Dns.Name_rr_map.(equal zone_rrs
+                                  (add zone Dns.Rr_map.Soa old_soa old_entries))
+             then
+               Ok ()
+             else
+               Rresult.R.error_msgf "SOA serial has not been incremented for %a"
+                 Domain_name.pp zone
+           | Error _, _ -> Ok ()
+           | _, Error _ -> Ok ()) >>= fun () ->
         (* collect potential glue:
            - find NS entries for zone
            - find A records for name servers in other zones
@@ -191,21 +209,21 @@ module Main (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.MC
   let start _rng _pclock _mclock _time s resolver conduit =
     connect_store resolver conduit >>= fun (store, upstream) ->
     Logs.info (fun m -> m "i have now master!");
-    load_git store upstream >>= function
+    load_git None store upstream >>= function
     | Error (`Msg msg) ->
       Logs.err (fun m -> m "error during loading git %s" msg);
       Lwt.return_unit
     | Ok (trie, keys) ->
       let on_update ~old ~authenticated_key ~update_source t =
         store_zones ~old authenticated_key update_source t store upstream
-      and on_notify n _t =
+      and on_notify n t =
         match n with
         | `Notify soa ->
           Logs.err (fun m -> m "ignoring normal notify %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa);
           Lwt.return None
         | `Signed_notify soa ->
           Logs.info (fun m -> m "got notified, checking out %a" Fmt.(option ~none:(unit "no soa") Dns.Soa.pp) soa);
-          load_git store upstream >|= function
+          load_git (Some (Dns_server.Primary.data t)) store upstream >|= function
           | Error (`Msg msg) ->
             Logs.err (fun m -> m "error %s while loading git while in notify, continuing with old data" msg);
             None
