@@ -9,8 +9,8 @@ license: "public domain"
 
 depends: [
   "lwt"
-  "mirage" {>= "3.7.5"}
-  "ocaml" {>= "4.07.0"}
+  "mirage" {>= "3.7.7"}
+  "ocaml" {>= "4.08.0"}
 ]
 
 synopsis: "Unikernels developed by the robur.io team"
