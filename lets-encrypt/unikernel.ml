@@ -299,7 +299,8 @@ module Client (R : Mirage_random.S) (P : Mirage_clock.PCLOCK) (M : Mirage_clock.
         Letsencrypt.letsencrypt_staging_url
       end
     in
-    Acme.initialise ~ctx ~endpoint account_key >>= function
+    let email = Key_gen.email () in
+    Acme.initialise ~ctx ~endpoint ?email account_key >>= function
     | Error (`Msg e) -> Logs.err (fun m -> m "error %s" e) ; Lwt.return_unit
     | Ok le ->
       Logs.info (fun m -> m "initialised lets encrypt");

@@ -2,12 +2,6 @@
 
 open Mirage
 
-(* what should be the boot parameters?
-   - DNS update key, zone, and IP address
-   - hostname and certificate key seed
-   - account key seed
-*)
-
 let dns_key =
   let doc = Key.Arg.info ~doc:"nsupdate key (name:type:value,...)" ["dns-key"] in
   Key.(create "dns-key" Arg.(opt string "" doc))
@@ -28,9 +22,13 @@ let production =
   let doc = Key.Arg.info ~doc:"Use the production let's encrypt servers" ["production"] in
   Key.(create "production" Arg.(flag doc))
 
+let email =
+  let doc = Key.Arg.info ~doc:"Contact eMail address for let's encrypt" ["email"] in
+  Key.(create "email" Arg.(opt (some string) None doc))
+
 let keys = Key.[
     abstract dns_key ; abstract dns_server ; abstract port ;
-    abstract account_key_seed ; abstract production
+    abstract account_key_seed ; abstract production ; abstract email
   ]
 
 let packages =
