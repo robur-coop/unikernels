@@ -42,7 +42,6 @@ let dns_handler =
     package ~sublibs:["mirage"] "logs-syslog";
   ] in
   foreign
-    ~deps:[abstract app_info]
     ~keys:[
       Key.abstract remote_k ; Key.abstract axfr ; Key.abstract seed ; Key.abstract authenticator ;
       Key.abstract name ; Key.abstract monitor ; Key.abstract syslog

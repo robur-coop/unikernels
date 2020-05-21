@@ -33,7 +33,6 @@ let dns_handler =
   ]
   in
   foreign
-    ~deps:[abstract app_info]
     ~keys
     ~packages
     "Unikernel.Main" (console @-> random @-> pclock @-> mclock @-> time @-> stackv4 @-> stackv4 @-> job)

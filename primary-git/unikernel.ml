@@ -262,7 +262,7 @@ module Main (C : Mirage_console.S) (R : Mirage_random.S) (P : Mirage_clock.PCLOC
   module Monitoring = Monitoring_experiments.Make(T)(Management)
   module Syslog = Logs_syslog_mirage.Udp(C)(P)(Management)
 
-  let start c _rng _pclock _mclock _time s resolver conduit management info =
+  let start c _rng _pclock _mclock _time s resolver conduit management =
     let hostname = Key_gen.name ()
     and syslog = Key_gen.syslog ()
     and monitor = Key_gen.monitor ()
@@ -275,8 +275,6 @@ module Main (C : Mirage_console.S) (R : Mirage_random.S) (P : Mirage_clock.PCLOC
       Logs.warn (fun m -> m "no monitor specified, not outputting statistics")
     else
       Monitoring.create ~hostname monitor management;
-    List.iter (fun (p, v) -> Logs.app (fun m -> m "used package: %s %s" p v))
-      info.Mirage_info.packages;
     CON.with_ssh conduit (module M) >>= fun conduit ->
     connect_store resolver conduit >>= fun (store, upstream) ->
     load_git None store upstream >>= function

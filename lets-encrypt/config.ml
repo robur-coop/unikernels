@@ -62,7 +62,7 @@ let packages =
 ]
 
 let client =
-  foreign ~deps:[abstract app_info] ~keys ~packages "Unikernel.Client" @@
+  foreign ~keys ~packages "Unikernel.Client" @@
   console @-> random @-> pclock @-> mclock @-> time @-> stackv4 @-> resolver @-> conduit @-> job
 
 let management_stack = generic_stackv4 ~group:"management" (netif ~group:"management" "management")

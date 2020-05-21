@@ -121,7 +121,7 @@ module Client (C : Mirage_console.S) (R : Mirage_random.S) (P : Mirage_clock.PCL
   module Monitoring = Monitoring_experiments.Make(T)(S)
   module Syslog = Logs_syslog_mirage.Udp(C)(P)(S)
 
-  let start c _random _pclock _mclock _ stack res ctx info =
+  let start c _random _pclock _mclock _ stack res ctx =
     let hostname = Key_gen.name ()
     and syslog = Key_gen.syslog ()
     and monitor = Key_gen.monitor ()
@@ -134,8 +134,6 @@ module Client (C : Mirage_console.S) (R : Mirage_random.S) (P : Mirage_clock.PCL
       Logs.warn (fun m -> m "no monitor specified, not outputting statistics")
     else
       Monitoring.create ~hostname monitor stack;
-    List.iter (fun (p, v) -> Logs.app (fun m -> m "used package: %s %s" p v))
-      info.Mirage_info.packages;
     let keyname, keyzone, dnskey =
       match Dnskey.name_key_of_string (Key_gen.dns_key ()) with
       | Error (`Msg msg) -> Logs.err (fun m -> m "couldn't parse dnskey: %s" msg) ; exit 64
