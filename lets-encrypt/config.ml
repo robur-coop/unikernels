@@ -40,7 +40,7 @@ let packages =
     package ~min:"0.2.1" "letsencrypt" ;
     package "conduit-mirage" ;
     package "dns-tsig";
-    package ~min:"4.4.0" "dns-certify";
+    package ~min:"4.6.0" "dns-certify";
     package ~min:"4.4.0" ~sublibs:[ "mirage" ] "dns-server";
     package "randomconv" ;
     package ~min:"0.3.0" "domain-name"
