@@ -50,30 +50,12 @@ module Client (C : Mirage_console.S) (R : Mirage_random.S) (P : Mirage_clock.PCL
       let now_plus_two_weeks =
         let (days, ps) = P.now_d_ps () in
         Ptime.v (days + 14, ps)
+      and now = Ptime.v (P.now_d_ps ())
       in
-      let _, until = X509.Certificate.validity cert in
-      let csr_key = X509.Public_key.id X509.Signing_request.((info csr).public_key)
-      and cert_key = X509.Public_key.id (X509.Certificate.public_key cert)
-      in
-      let hostnames = X509.Certificate.hostnames cert
-      and csr_names = X509.Signing_request.hostnames csr
-      and valid = Ptime.is_later until ~than:now_plus_two_weeks
-      and key_eq = Cstruct.equal csr_key cert_key
-      in
-      begin match valid, key_eq, X509.Host.Set.equal hostnames csr_names with
-        | true, true, true -> None
-        | false, _, _ ->
-          Logs.err (fun m -> m "%a is not later than %a"
-                       (Ptime.pp_human ()) until (Ptime.pp_human ()) now_plus_two_weeks);
-          Some csr
-        | _, false, _ ->
-          Logs.err (fun m -> m "public keys do not match");
-          Some csr
-        | _, _, false ->
-          Logs.err (fun m -> m "csr names %a do not match cert names %a"
-                       X509.Host.Set.pp csr_names X509.Host.Set.pp hostnames);
-          Some csr
-      end
+      if Dns_certify.cert_matches_csr ~until:now_plus_two_weeks now csr cert then
+        None
+      else
+        Some csr
     | Ok csr, Error `Msg e ->
       Logs.err (fun m -> m "couldn't parse certificate %s, requesting new one" e);
       Some csr
