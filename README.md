@@ -42,35 +42,12 @@ one for update operations and another one for transfer operations.
 The [`primary-with-zone`](primary-with-zone/) contains no hardcoded
 configuration, but serves [`data/zone`](primary-with-zone/data/zone) instead.
 
-The [`primary-git`](primary-git/) subdirectory contains a unikernel which get as
-boot parameter (`--remote`) a git repository where it expects at the top level
-zonefiles, parses and serves them via DNS.
-
-## Secondary authoritative nameserver
-
-The [`secondary`](secondary/) subdirectory contains an unikernel which accepts
-TSIG keys as command line arguments (`--keys`, can be provided multiple times).
-
-A setup how they play together could be:
-```
-# solo5-hvt --net=tap0 -- primary/primary.hvt -l \*:debug
-# solo5-hvt --net=tap1 -- secondary/secondary.hvt -l \*:debug --keys 10.0.42.2.10.0.42.4._transfer.mirage:SHA256:E0A7MFr4kfcGIRngRVBcBdFPg43XIb2qbGswcn66q4Q=
-```
-
 ## Let's encrypt certification unikernel
 
 The [`certificate`](certificate/) subdirectory contains an unikernel which
 receives a key seed, and looks in DNS for a let's encrypt certificate.  If none
 is found, a certificate signing request (`TLSA` record, type private (255)) is
 put into DNS, and DNS is polled until a certificate occurs.
-
-## Let's encrypt hidden secondary
-
-The [`lets-encrypt`](lets-encrypt/) subdirectory contains an unikernel which
-waits for zone transfers, and if a certificate signing request (`TLSA` record,
-type private (255)) is received, a certificate is provisioned by the let's
-encrypt servers using the DNS challenge. This certificate is put back into
-DNS as `TLSA` record.
 
 ## Caching resolvers
 

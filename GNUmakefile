@@ -3,13 +3,10 @@
 UNIKERNELS = \
   primary \
   primary-with-zone \
-  secondary \
   resolver \
   stub-resolver \
   certificate \
-  lets-encrypt \
-  client \
-  primary-git
+  client
 
 MODE ?= "unix"
 
