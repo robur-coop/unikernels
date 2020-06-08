@@ -9,12 +9,7 @@ UNIKERNELS = \
   certificate \
   lets-encrypt \
   client \
-  primary-git \
-  tlstunnel
-
-ifeq ($(MODE),unix)
-UNIKERNELS += secondary-git
-endif
+  primary-git
 
 MODE ?= "unix"
 

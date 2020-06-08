@@ -32,13 +32,6 @@ If you want to compile for Linux KVM, FreeBSD BHyve, OpenBSD VMM (by using
 All unikernels use the default stack implementation, and thus will listen on
 10.0.0.2/24, their gateway being 10.0.0.1.
 
-## TLS tunnel
-
-The [`tlstunnel`](tlstunnel/) subdirectory contains a TLS terminator: it listens
-on a public network interface for TLS connections, once a TLS connection is
-established this is forwarded to the specified host on the backend interface
-via TCP.
-
 ## Primary authoritative nameservers
 
 The [`primary`](primary/) subdirectory contains an unikernel with the hardcoded
@@ -57,11 +50,6 @@ zonefiles, parses and serves them via DNS.
 
 The [`secondary`](secondary/) subdirectory contains an unikernel which accepts
 TSIG keys as command line arguments (`--keys`, can be provided multiple times).
-
-The [`secondary-git`](secondary-git/) subdirectory contains a secondary that at
-the moment only works with the unix target of mirage and dumps zonefiles in a
-configurable local git repository (whenever a notify is received / AXFR has
-succeeded).
 
 A setup how they play together could be:
 ```
