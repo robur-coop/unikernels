@@ -32,13 +32,6 @@ If you want to compile for Linux KVM, FreeBSD BHyve, OpenBSD VMM (by using
 All unikernels use the default stack implementation, and thus will listen on
 10.0.0.2/24, their gateway being 10.0.0.1.
 
-## TLS tunnel
-
-The [`tlstunnel`](tlstunnel/) subdirectory contains a TLS terminator: it listens
-on a public network interface for TLS connections, once a TLS connection is
-established this is forwarded to the specified host on the backend interface
-via TCP.
-
 ## Primary authoritative nameservers
 
 The [`primary`](primary/) subdirectory contains an unikernel with the hardcoded
@@ -49,40 +42,12 @@ one for update operations and another one for transfer operations.
 The [`primary-with-zone`](primary-with-zone/) contains no hardcoded
 configuration, but serves [`data/zone`](primary-with-zone/data/zone) instead.
 
-The [`primary-git`](primary-git/) subdirectory contains a unikernel which get as
-boot parameter (`--remote`) a git repository where it expects at the top level
-zonefiles, parses and serves them via DNS.
-
-## Secondary authoritative nameserver
-
-The [`secondary`](secondary/) subdirectory contains an unikernel which accepts
-TSIG keys as command line arguments (`--keys`, can be provided multiple times).
-
-The [`secondary-git`](secondary-git/) subdirectory contains a secondary that at
-the moment only works with the unix target of mirage and dumps zonefiles in a
-configurable local git repository (whenever a notify is received / AXFR has
-succeeded).
-
-A setup how they play together could be:
-```
-# solo5-hvt --net=tap0 -- primary/primary.hvt -l \*:debug
-# solo5-hvt --net=tap1 -- secondary/secondary.hvt -l \*:debug --keys 10.0.42.2.10.0.42.4._transfer.mirage:SHA256:E0A7MFr4kfcGIRngRVBcBdFPg43XIb2qbGswcn66q4Q=
-```
-
 ## Let's encrypt certification unikernel
 
 The [`certificate`](certificate/) subdirectory contains an unikernel which
 receives a key seed, and looks in DNS for a let's encrypt certificate.  If none
 is found, a certificate signing request (`TLSA` record, type private (255)) is
 put into DNS, and DNS is polled until a certificate occurs.
-
-## Let's encrypt hidden secondary
-
-The [`lets-encrypt`](lets-encrypt/) subdirectory contains an unikernel which
-waits for zone transfers, and if a certificate signing request (`TLSA` record,
-type private (255)) is received, a certificate is provisioned by the let's
-encrypt servers using the DNS challenge. This certificate is put back into
-DNS as `TLSA` record.
 
 ## Caching resolvers
 

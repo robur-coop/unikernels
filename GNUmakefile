@@ -3,18 +3,10 @@
 UNIKERNELS = \
   primary \
   primary-with-zone \
-  secondary \
   resolver \
   stub-resolver \
   certificate \
-  lets-encrypt \
-  client \
-  primary-git \
-  tlstunnel
-
-ifeq ($(MODE),unix)
-UNIKERNELS += secondary-git
-endif
+  client
 
 MODE ?= "unix"
 
