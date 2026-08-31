@@ -1,8 +1,8 @@
 # Unikernels
 
-[![Build Status](https://travis-ci.org/roburio/unikernels.svg?branch=master)](https://travis-ci.org/roburio/unikernels)
+UPDATE: This repository has ben archived - there won't be any updates. Check https://builds.robur.coop for actively maintained unikernels.
 
-A MirageOS unikernel repository
+A MirageOS unikernel repository.
 
 All source code in this repository was developed from scratch by the specific authors. This code is put in the public domain.
 
